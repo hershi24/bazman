@@ -131,10 +131,7 @@ export default function EmployeeView() {
 
         <footer className="mt-8 border-t border-slate-200 pt-4 text-center text-[11px] text-slate-400">
           <p>
-            פותח על ידי <span className="font-semibold text-slate-500">גליצקי פתרונות טכנולוגיים לעסקים</span> ·{' '}
-            <a href="mailto:e0583296967@gmail.com" className="text-brand-600 underline underline-offset-2 hover:text-brand-700">
-              e0583296967@gmail.com
-            </a>
+            פותח על ידי <span className="font-semibold text-slate-500">גליצקי פתרונות טכנולוגיים לעסקים</span>
           </p>
         </footer>
       </main>

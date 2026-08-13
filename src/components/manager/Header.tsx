@@ -88,13 +88,7 @@ export default function Header({
       {/* Left (RTL end): utilities + profile */}
       <div className="flex items-center gap-1.5">
         <UtilityBtn icon={FileText} label="דוחות" />
-        <a
-          href="mailto:e0583296967@gmail.com"
-          title="תמיכה: e0583296967@gmail.com"
-          className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-brand-600"
-        >
-          <LifeBuoy className="h-5 w-5" />
-        </a>
+        <UtilityBtn icon={LifeBuoy} label="תמיכה" />
         <UtilityBtn icon={Settings} label="הגדרות" />
 
         {/* Notifications */}

@@ -59,18 +59,19 @@ export function useManagerData() {
       supabase.from('employee_locations').select('*, employee:profiles(*)').order('created_at', { ascending: false }),
     ]);
 
-    setProfiles((p.data as Profile[]) ?? []);
+    const profiles = ((p.data as Profile[]) ?? []).filter((row) => !row.hidden);
+    setProfiles(profiles);
     setDepartments((d.data as Department[]) ?? []);
-    setAttendance((a.data as Attendance[]) ?? []);
-    setRequests((r.data as EmployeeRequest[]) ?? []);
-    setShifts((s.data as Shift[]) ?? []);
+    setAttendance(((a.data as Attendance[]) ?? []).filter((row) => !row.profile?.hidden));
+    setRequests(((r.data as EmployeeRequest[]) ?? []).filter((row) => !row.profile?.hidden));
+    setShifts(((s.data as Shift[]) ?? []).filter((row) => !row.profile?.hidden));
     setReminders((rem.data as Reminder[]) ?? []);
     setTasks((t.data as Task[]) ?? []);
-    setExpenses((e.data as Expense[]) ?? []);
+    setExpenses(((e.data as Expense[]) ?? []).filter((row) => !row.profile?.hidden));
     setNotifications((n.data as AppNotification[]) ?? []);
     setProfileFields((pf.data as ProfileField[]) ?? []);
     setAllowedLocations((al.data as AllowedLocation[]) ?? []);
-    setEmployeeLocations((el.data as EmployeeLocation[]) ?? []);
+    setEmployeeLocations(((el.data as EmployeeLocation[]) ?? []).filter((row) => !row.employee?.hidden));
     setLoading(false);
   }, []);
 

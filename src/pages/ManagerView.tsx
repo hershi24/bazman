@@ -56,12 +56,9 @@ export default function ManagerView() {
             <GenericPage activeKey={activeKey} data={data} onNavigate={setActiveKey} search={search} />
           )}
           <footer className="mt-6 border-t border-slate-200 pt-4 text-center text-[11px] text-slate-400">
-            <p>
-              פותח על ידי <span className="font-semibold text-slate-500">גליצקי פתרונות טכנולוגיים לעסקים</span> ·{' '}
-              <a href="mailto:e0583296967@gmail.com" className="text-brand-600 underline underline-offset-2 hover:text-brand-700">
-                e0583296967@gmail.com
-              </a>
-            </p>
+          <p>
+            פותח על ידי <span className="font-semibold text-slate-500">גליצקי פתרונות טכנולוגיים לעסקים</span>
+          </p>
           </footer>
         </main>
       </div>
@@ -187,6 +184,7 @@ function EmployeeList({
     (p) =>
       p.role === 'employee' &&
       p.status === 'active' &&
+      !p.hidden &&
       (p.full_name.includes(search) || (p.employee_number ?? '').includes(search)),
   );
   const deptName = (id: string | null) => departments.find((d) => d.id === id)?.name ?? '—';
@@ -1733,7 +1731,7 @@ function ManagerRemindersFullPage({ reminders, onReload }: { reminders: Reminder
 }
 
 function RestoreEmployeesPage({ profiles, onReload }: { profiles: Profile[]; onReload: () => void }) {
-  const deleted = profiles.filter((p) => p.status === 'deleted');
+  const deleted = profiles.filter((p) => p.status === 'deleted' && !p.hidden);
   async function restore(id: string) { await supabase.from('profiles').update({ status: 'active' }).eq('id', id); onReload(); }
   return (
     <Card>

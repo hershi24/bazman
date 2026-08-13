@@ -89,9 +89,6 @@ export default function Login() {
           <p>
             פותח על ידי <span className="font-semibold text-brand-100">גליצקי פתרונות טכנולוגיים לעסקים</span>
           </p>
-          <a href="mailto:e0583296967@gmail.com" className="text-brand-100 underline underline-offset-2 hover:text-white">
-            e0583296967@gmail.com
-          </a>
         </div>
       </div>
 

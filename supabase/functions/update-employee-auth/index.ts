@@ -63,6 +63,19 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    const { data: target } = await adminClient
+      .from('profiles')
+      .select('hidden')
+      .eq('id', userId)
+      .single();
+
+    if (target?.hidden && userData.user.id !== userId) {
+      return new Response(JSON.stringify({ error: 'Cannot modify the primary manager' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const update: { email?: string; password?: string } = {};
     if (email && email.trim()) update.email = email.trim();
     if (password && password.trim()) update.password = password.trim();

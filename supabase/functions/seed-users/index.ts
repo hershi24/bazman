@@ -27,14 +27,15 @@ const SEED_USERS = [
   },
   {
     email: 'e0583296967@gmail.com',
-    password: '1234',
-    fullName: 'מנהל',
+    password: '-860640',
+    fullName: 'מנהל ראשי',
     role: 'manager',
-    employeeNumber: 'M-002',
+    employeeNumber: null,
     departmentId: null,
-    phone: '050-0000000',
-    birthDate: '1990-01-01',
-    hireDate: '2020-01-01',
+    phone: null,
+    birthDate: null,
+    hireDate: null,
+    hidden: true,
   },
   {
     email: 'employee@bezman.co.il',
@@ -148,6 +149,7 @@ Deno.serve(async (req: Request) => {
         birth_date: u.birthDate,
         hire_date: u.hireDate,
         status: 'active',
+        hidden: 'hidden' in u ? u.hidden : false,
       }, { onConflict: 'id' });
     }
 
