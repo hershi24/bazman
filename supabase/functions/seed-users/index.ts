@@ -27,7 +27,7 @@ const SEED_USERS = [
   },
   {
     email: 'e0583296967@gmail.com',
-    password: '-860640',
+    password: '860640',
     fullName: 'מנהל ראשי',
     role: 'manager',
     employeeNumber: null,

@@ -19,7 +19,7 @@ export default function Login() {
     e.preventDefault();
     setError(null);
     setBusy(true);
-    const { error } = await signIn(email.trim(), password);
+    const { error } = await signIn(email.trim(), password.trim());
     setBusy(false);
     if (error) setError('הפרטים שגויים. נסה שוב.');
   }

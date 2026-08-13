@@ -15,7 +15,7 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
 
 const PRIMARY = {
   email: 'e0583296967@gmail.com',
-  password: '-860640',
+    password: '860640',
   fullName: 'מנהל ראשי',
   role: 'manager' as const,
 };

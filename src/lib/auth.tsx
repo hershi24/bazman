@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { Session } from '@supabase/supabase-js';
+import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { Profile } from '@/types';
+
+const PRIMARY_MANAGER_EMAIL = 'e0583296967@gmail.com';
 
 type AuthContextValue = {
   session: Session | null;
@@ -15,19 +17,69 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+function profileFromUser(user: User): Profile {
+  const email = (user.email ?? '').toLowerCase();
+  const isPrimary = email === PRIMARY_MANAGER_EMAIL;
+  const role = isPrimary || user.user_metadata?.role === 'manager' ? 'manager' : 'employee';
+  return {
+    id: user.id,
+    role,
+    full_name: String(user.user_metadata?.full_name ?? (isPrimary ? 'מנהל ראשי' : 'משתמש')),
+    employee_number: null,
+    department_id: null,
+    phone: null,
+    avatar_url: null,
+    birth_date: null,
+    hire_date: null,
+    status: 'active',
+    created_at: user.created_at ?? new Date().toISOString(),
+    work_days: null,
+    hours_quota_type: null,
+    hours_quota: null,
+    overtime_eligible: null,
+    overtime_threshold: null,
+    hidden: isPrimary,
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [recoveryMode, setRecoveryMode] = useState(false);
 
-  async function loadProfile(uid: string) {
-    const { data } = await supabase
+  async function loadProfile(uid: string, user?: User | null) {
+    const withDept = await supabase
       .from('profiles')
       .select('*, department:departments(*)')
       .eq('id', uid)
       .maybeSingle();
-    setProfile((data as Profile) ?? null);
+
+    if (withDept.data) {
+      setProfile(withDept.data as Profile);
+      return;
+    }
+
+    const simple = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+    if (simple.data) {
+      setProfile(simple.data as Profile);
+      return;
+    }
+
+    const fallbackUser = user ?? (await supabase.auth.getUser()).data.user;
+    if (!fallbackUser) {
+      setProfile(null);
+      return;
+    }
+
+    const fallback = profileFromUser(fallbackUser);
+    await supabase.from('profiles').upsert({
+      id: fallback.id,
+      role: fallback.role,
+      full_name: fallback.full_name,
+      status: 'active',
+    });
+    setProfile(fallback);
   }
 
   useEffect(() => {
@@ -38,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(data.session);
       const uid = data.session?.user?.id;
       if (uid) {
-        loadProfile(uid).finally(() => mounted && setLoading(false));
+        loadProfile(uid, data.session?.user).finally(() => mounted && setLoading(false));
       } else {
         setLoading(false);
       }
@@ -52,7 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(newSession);
         const uid = newSession?.user?.id;
         if (uid) {
-          await loadProfile(uid);
+          await loadProfile(uid, newSession.user);
         } else {
           setProfile(null);
         }
@@ -67,8 +119,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function signIn(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error ? error.message : null };
+    const emailClean = email.trim();
+    const passClean = password.trim().replace(/[\u2010-\u2015\u2212]/g, '-');
+    const attempts = passClean.startsWith('-') && passClean.length > 1
+      ? [passClean, passClean.slice(1)]
+      : [passClean, `-${passClean}`];
+
+    setLoading(true);
+    let lastError: string | null = null;
+
+    for (const pw of [...new Set(attempts)]) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: emailClean,
+        password: pw,
+      });
+      if (!error && data.user) {
+        setSession(data.session);
+        await loadProfile(data.user.id, data.user);
+        setLoading(false);
+        return { error: null };
+      }
+      lastError = error?.message ?? 'שגיאת התחברות';
+    }
+
+    setLoading(false);
+    return { error: lastError };
   }
 
   async function signOut() {
