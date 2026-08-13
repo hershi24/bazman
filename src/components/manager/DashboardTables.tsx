@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
-import { ChevronRight, ChevronLeft, MoreVertical } from 'lucide-react';
+import { ChevronRight, ChevronLeft, MoreVertical, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { Avatar, Badge, Card, SectionTitle } from '@/components/ui';
 import { formatHebrewDate } from '@/lib/format';
@@ -17,6 +17,8 @@ export function RequestsTable({
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -90,27 +92,58 @@ export function RequestsTable({
   }
 
   async function deleteRequest(id: string) {
-    if (!confirm('האם למחוק את הבקשה?')) return;
     setPendingId(id);
-    const { error } = await supabase.from('requests').delete().eq('id', id);
-    setPendingId(null);
-    onReload();
-    if (error) {
-      flashToast('err', 'שגיאה במחיקת הבקשה');
-    } else {
-      flashToast('ok', 'הבקשה נמחקה');
+
+    const { data, error } = await supabase.from('requests').delete().eq('id', id).select('id');
+    const deletedViaClient = !error && !!data && data.length > 0;
+
+    if (!deletedViaClient) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-employee-request`;
+      try {
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${sessionData.session?.access_token ?? ''}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+          },
+          body: JSON.stringify({ id }),
+        });
+        const result = (await res.json()) as { error?: string };
+        if (!res.ok || result.error) {
+          setPendingId(null);
+          setConfirmDeleteId(null);
+          flashToast('err', result.error ?? error?.message ?? 'שגיאה במחיקת הבקשה');
+          return;
+        }
+      } catch {
+        setPendingId(null);
+        setConfirmDeleteId(null);
+        flashToast('err', error?.message ?? 'שגיאה במחיקת הבקשה');
+        return;
+      }
     }
+
+    setPendingId(null);
+    setConfirmDeleteId(null);
+    setHiddenIds((prev) => [...prev, id]);
+    flashToast('ok', 'הבקשה נמחקה');
+    onReload();
   }
+
+  const visibleRequests = requests.filter((r) => !hiddenIds.includes(r.id));
+  const confirmDeleteReq = visibleRequests.find((r) => r.id === confirmDeleteId);
 
   return (
     <Card className="flex flex-col">
       <SectionTitle
         title="בקשות מהעובדים"
         icon={<Inbox />}
-        action={<Badge color="orange">{requests.filter((r) => r.status === 'pending').length} ממתינות</Badge>}
+        action={<Badge color="orange">{visibleRequests.filter((r) => r.status === 'pending').length} ממתינות</Badge>}
       />
       <div>
-        {requests.length === 0 ? (
+        {visibleRequests.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-slate-400">אין בקשות</p>
         ) : (
           <table className="w-full text-right text-sm">
@@ -127,7 +160,7 @@ export function RequestsTable({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {[...requests]
+              {[...visibleRequests]
                 .sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0))
                 .map((r) => (
                 <Fragment key={r.id}>
@@ -211,7 +244,7 @@ export function RequestsTable({
                           <button
                             onClick={() => {
                               setMenuOpenId(null);
-                              deleteRequest(r.id);
+                              setConfirmDeleteId(r.id);
                             }}
                             className="flex w-full items-center px-3 py-2 text-right text-xs font-medium text-rose-600 transition hover:bg-rose-50"
                           >
@@ -263,6 +296,37 @@ export function RequestsTable({
       {toast && (
         <div className={`fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-xl px-5 py-3 text-sm font-bold shadow-lg ${toast.type === 'ok' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'} animate-scale-in`}>
           {toast.text}
+        </div>
+      )}
+      {confirmDeleteReq && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <Card className="w-full max-w-sm p-6 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-100 text-rose-600">
+              <Trash2 className="h-7 w-7" />
+            </div>
+            <h3 className="mt-4 text-lg font-bold text-slate-800">מחיקת בקשה</h3>
+            <p className="mt-2 text-sm text-slate-500">
+              למחוק את הבקשה של{' '}
+              <span className="font-bold text-slate-700">{confirmDeleteReq.profile?.full_name ?? 'העובד'}</span>
+              {' '}({confirmDeleteReq.type})?
+            </p>
+            <div className="mt-5 flex justify-center gap-2">
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={pendingId === confirmDeleteReq.id}
+                className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-40"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={() => deleteRequest(confirmDeleteReq.id)}
+                disabled={pendingId === confirmDeleteReq.id}
+                className="rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-rose-700 disabled:opacity-40"
+              >
+                {pendingId === confirmDeleteReq.id ? 'מוחק...' : 'מחק בקשה'}
+              </button>
+            </div>
+          </Card>
         </div>
       )}
     </Card>

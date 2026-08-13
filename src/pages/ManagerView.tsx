@@ -5,6 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/lib/auth';
 import { useManagerData } from '@/lib/useManagerData';
 import { supabase } from '@/lib/supabase';
+import { updateUserAuth } from '@/lib/updateAuth';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
 import KpiCards from '@/components/manager/KpiCards';
@@ -394,14 +395,12 @@ function EditEmployeeModal({
       return;
     }
 
-    const { data, error } = await supabase.functions.invoke('update-employee-auth', {
-      body: payload,
-    });
+    const { error } = await updateUserAuth(payload);
 
-    if (error || (data && data.error)) {
-      setAuthMsg({ type: 'err', text: data?.error ?? error?.message ?? 'שגיאה בעדכון האימייל/סיסמה.' });
+    if (error) {
+      setAuthMsg({ type: 'err', text: error });
     } else {
-      setAuthMsg({ type: 'ok', text: 'האימייל/הסיסמה עודכנו בהצלחה.' });
+      setAuthMsg({ type: 'ok', text: 'האימייל/הסיסמה עודכנו בהצלחה. ניתן להתחבר עם הפרטים החדשים מיד, ללא אישור במייל.' });
       setNewEmail('');
       setNewPassword('');
     }
@@ -542,7 +541,8 @@ function EditEmployeeModal({
       </div>
 
       <div className="mt-5 border-t border-slate-100 pt-4">
-        <p className="mb-3 text-sm font-bold text-slate-700">אימייל וסיסמה</p>
+        <p className="mb-1 text-sm font-bold text-slate-700">הגדרות מתקדמות — אימייל וסיסמה</p>
+        <p className="mb-3 text-xs text-slate-400">העדכון נשמר ישירות בחשבון ההתחברות, בלי לשלוח מייל אישור.</p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">אימייל חדש</label>
@@ -2142,14 +2142,18 @@ function AccountSettingsPage() {
       setEmailMsg({ type: 'err', text: 'נא להזין אימייל חדש' });
       return;
     }
-    setBusy(true);
-    const { error } = await supabase.auth.updateUser({ email: newEmail });
-    setBusy(false);
-    if (error) {
-      setEmailMsg({ type: 'err', text: error.message });
+    if (!session?.user?.id) {
+      setEmailMsg({ type: 'err', text: 'לא נמצא משתמש מחובר.' });
       return;
     }
-    setEmailMsg({ type: 'ok', text: 'האימייל עודכן. יש להתחבר מחדש עם האימייל החדש.' });
+    setBusy(true);
+    const { error } = await updateUserAuth({ userId: session.user.id, email: newEmail.trim() });
+    setBusy(false);
+    if (error) {
+      setEmailMsg({ type: 'err', text: error });
+      return;
+    }
+    setEmailMsg({ type: 'ok', text: 'האימייל עודכן מיד, ללא שליחת מייל אישור. יש להתחבר מחדש עם האימייל החדש.' });
     setNewEmail('');
     setTimeout(() => signOut(), 2500);
   }
@@ -2165,11 +2169,15 @@ function AccountSettingsPage() {
       setPwMsg({ type: 'err', text: 'הסיסמאות אינן תואמות' });
       return;
     }
+    if (!session?.user?.id) {
+      setPwMsg({ type: 'err', text: 'לא נמצא משתמש מחובר.' });
+      return;
+    }
     setBusy(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    const { error } = await updateUserAuth({ userId: session.user.id, password: newPassword });
     setBusy(false);
     if (error) {
-      setPwMsg({ type: 'err', text: error.message });
+      setPwMsg({ type: 'err', text: error });
       return;
     }
     setPwMsg({ type: 'ok', text: 'הסיסמה עודכנה בהצלחה' });

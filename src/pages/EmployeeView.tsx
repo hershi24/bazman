@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { updateUserAuth } from '@/lib/updateAuth';
 import type { Attendance, EmployeeRequest, AllowedLocation, EmployeeLocation } from '@/types';
 import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
 import {
@@ -1009,13 +1010,17 @@ function AccountPanel() {
       setEmailMsg({ type: 'err', text: 'נא להזין כתובת אימייל.' });
       return;
     }
+    if (!profile?.id) {
+      setEmailMsg({ type: 'err', text: 'לא נמצא משתמש מחובר.' });
+      return;
+    }
     setEmailBusy(true);
-    const { error } = await supabase.auth.updateUser({ email: email.trim() });
+    const { error } = await updateUserAuth({ userId: profile.id, email: email.trim() });
     setEmailBusy(false);
     if (error) {
-      setEmailMsg({ type: 'err', text: error.message });
+      setEmailMsg({ type: 'err', text: error });
     } else {
-      setEmailMsg({ type: 'ok', text: 'כתובת האימייל עודכנה. ייתכן שתישלח הודעת אישור לכתובת החדשה.' });
+      setEmailMsg({ type: 'ok', text: 'כתובת האימייל עודכנה מיד, ללא שליחת מייל אישור.' });
     }
   }
 
@@ -1026,11 +1031,15 @@ function AccountPanel() {
       setPassMsg({ type: 'err', text: 'הסיסמה חייבת להכיל לפחות 6 תווים.' });
       return;
     }
+    if (!profile?.id) {
+      setPassMsg({ type: 'err', text: 'לא נמצא משתמש מחובר.' });
+      return;
+    }
     setPassBusy(true);
-    const { error } = await supabase.auth.updateUser({ password: newPass });
+    const { error } = await updateUserAuth({ userId: profile.id, password: newPass });
     setPassBusy(false);
     if (error) {
-      setPassMsg({ type: 'err', text: error.message });
+      setPassMsg({ type: 'err', text: error });
     } else {
       setPassMsg({ type: 'ok', text: 'הסיסמה עודכנה בהצלחה!' });
       setNewPass('');

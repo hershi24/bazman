@@ -40,51 +40,38 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const body = await req.json();
-    const { userId, email, password } = body as { userId: string; email?: string; password?: string };
-
-    if (!userId) {
-      return new Response(JSON.stringify({ error: 'Missing userId' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
     const { data: profile } = await adminClient
       .from('profiles')
       .select('role')
       .eq('id', userData.user.id)
       .single();
 
-    const isManager = profile?.role === 'manager';
-    const isSelf = userData.user.id === userId;
-    if (!isManager && !isSelf) {
-      return new Response(JSON.stringify({ error: 'Only managers can update another user\'s credentials' }), {
+    if (!profile || profile.role !== 'manager') {
+      return new Response(JSON.stringify({ error: 'Only managers can delete requests' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const update: { email?: string; password?: string; email_confirm?: boolean } = {};
-    if (email && email.trim()) {
-      update.email = email.trim();
-      // Apply immediately — do not send a confirmation email to the old/new address.
-      update.email_confirm = true;
-    }
-    if (password && password.trim()) update.password = password.trim();
-
-    if (Object.keys(update).length === 0) {
-      return new Response(JSON.stringify({ error: 'Nothing to update' }), {
+    const body = await req.json();
+    const { id } = body as { id?: string };
+    if (!id) {
+      return new Response(JSON.stringify({ error: 'Missing request id' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const { error: authErr } = await adminClient.auth.admin.updateUserById(userId, update);
-
-    if (authErr) {
-      return new Response(JSON.stringify({ error: authErr.message }), {
+    const { data, error } = await adminClient.from('requests').delete().eq('id', id).select('id');
+    if (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
         status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (!data || data.length === 0) {
+      return new Response(JSON.stringify({ error: 'Request not found' }), {
+        status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
