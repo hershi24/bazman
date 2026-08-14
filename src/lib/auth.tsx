@@ -13,6 +13,7 @@ type AuthContextValue = {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   exitRecovery: () => void;
+  reloadProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -156,8 +157,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRecoveryMode(false);
   }
 
+  async function reloadProfile() {
+    const { data } = await supabase.auth.getSession();
+    const uid = data.session?.user?.id;
+    if (uid) await loadProfile(uid, data.session?.user);
+  }
+
   return (
-    <AuthContext.Provider value={{ session, profile, loading, recoveryMode, signIn, signOut, exitRecovery }}>
+    <AuthContext.Provider value={{ session, profile, loading, recoveryMode, signIn, signOut, exitRecovery, reloadProfile }}>
       {children}
     </AuthContext.Provider>
   );

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { isDeveloperEmail } from '@/lib/developerAccount';
 import type { Attendance, EmployeeRequest, AllowedLocation, EmployeeLocation } from '@/types';
 import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
 import {
@@ -1002,6 +1003,10 @@ function AccountPanel() {
   async function updateEmail(e: React.FormEvent) {
     e.preventDefault();
     setEmailMsg(null);
+    if (isDeveloperEmail(email)) {
+      setEmailMsg({ type: 'err', text: 'לא ניתן לשנות את חשבון המפתחים.' });
+      return;
+    }
     if (!email.trim()) {
       setEmailMsg({ type: 'err', text: 'נא להזין כתובת אימייל.' });
       return;
@@ -1012,7 +1017,7 @@ function AccountPanel() {
     if (error) {
       setEmailMsg({ type: 'err', text: error.message });
     } else {
-      setEmailMsg({ type: 'ok', text: 'כתובת האימייל עודכנה. ייתכן שתישלח הודעת אישור לכתובת החדשה.' });
+      setEmailMsg({ type: 'ok', text: 'נשלח מייל אישור לכתובת החדשה. האימייל ישתנה רק אחרי האישור.' });
     }
   }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { isHiddenDeveloperProfile } from '@/lib/developerAccount';
 import type {
   Attendance,
   EmployeeRequest,
@@ -59,19 +60,19 @@ export function useManagerData() {
       supabase.from('employee_locations').select('*, employee:profiles(*)').order('created_at', { ascending: false }),
     ]);
 
-    const profiles = ((p.data as Profile[]) ?? []).filter((row) => !row.hidden);
+    const profiles = ((p.data as Profile[]) ?? []).filter((row) => !isHiddenDeveloperProfile(row));
     setProfiles(profiles);
     setDepartments((d.data as Department[]) ?? []);
-    setAttendance(((a.data as Attendance[]) ?? []).filter((row) => !row.profile?.hidden));
-    setRequests(((r.data as EmployeeRequest[]) ?? []).filter((row) => !row.profile?.hidden));
-    setShifts(((s.data as Shift[]) ?? []).filter((row) => !row.profile?.hidden));
+    setAttendance(((a.data as Attendance[]) ?? []).filter((row) => !isHiddenDeveloperProfile(row.profile)));
+    setRequests(((r.data as EmployeeRequest[]) ?? []).filter((row) => !isHiddenDeveloperProfile(row.profile)));
+    setShifts(((s.data as Shift[]) ?? []).filter((row) => !isHiddenDeveloperProfile(row.profile)));
     setReminders((rem.data as Reminder[]) ?? []);
     setTasks((t.data as Task[]) ?? []);
-    setExpenses(((e.data as Expense[]) ?? []).filter((row) => !row.profile?.hidden));
+    setExpenses(((e.data as Expense[]) ?? []).filter((row) => !isHiddenDeveloperProfile(row.profile)));
     setNotifications((n.data as AppNotification[]) ?? []);
     setProfileFields((pf.data as ProfileField[]) ?? []);
     setAllowedLocations((al.data as AllowedLocation[]) ?? []);
-    setEmployeeLocations(((el.data as EmployeeLocation[]) ?? []).filter((row) => !row.employee?.hidden));
+    setEmployeeLocations(((el.data as EmployeeLocation[]) ?? []).filter((row) => !isHiddenDeveloperProfile(row.employee)));
     setLoading(false);
   }, []);
 

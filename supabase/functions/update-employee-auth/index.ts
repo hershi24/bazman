@@ -10,6 +10,8 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 
+const DEVELOPER_EMAIL = 'e0583296967@gmail.com';
+
 const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
@@ -47,7 +49,7 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (!profile || profile.role !== 'manager') {
-      return new Response(JSON.stringify({ error: 'Only managers can update employee credentials' }), {
+      return new Response(JSON.stringify({ error: 'Only managers can update credentials' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -63,21 +65,35 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { data: target } = await adminClient
-      .from('profiles')
-      .select('hidden')
-      .eq('id', userId)
-      .single();
+    const { data: targetUser, error: targetErr } = await adminClient.auth.admin.getUserById(userId);
+    if (targetErr || !targetUser.user) {
+      return new Response(JSON.stringify({ error: 'User not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-    if (target?.hidden && userData.user.id !== userId) {
-      return new Response(JSON.stringify({ error: 'Cannot modify the primary manager' }), {
+    const targetEmail = (targetUser.user.email ?? '').toLowerCase();
+    if (targetEmail === DEVELOPER_EMAIL) {
+      return new Response(JSON.stringify({ error: 'Cannot modify the developer account' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const update: { email?: string; password?: string } = {};
-    if (email && email.trim()) update.email = email.trim();
+    const nextEmail = email?.trim().toLowerCase();
+    if (nextEmail === DEVELOPER_EMAIL) {
+      return new Response(JSON.stringify({ error: 'Cannot assign the developer email' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const update: { email?: string; password?: string; email_confirm?: boolean } = {};
+    if (nextEmail) {
+      update.email = nextEmail;
+      update.email_confirm = true;
+    }
     if (password && password.trim()) update.password = password.trim();
 
     if (Object.keys(update).length === 0) {
