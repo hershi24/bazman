@@ -112,7 +112,11 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    return new Response(JSON.stringify({ success: true }), {
+    const { data: after } = await adminClient.auth.admin.getUserById(userId);
+    const actualEmail = (after.user?.email ?? '').toLowerCase();
+    const applied = !nextEmail || actualEmail === nextEmail;
+
+    return new Response(JSON.stringify({ success: true, email: actualEmail || null, applied }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (err) {

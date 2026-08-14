@@ -1012,12 +1012,15 @@ function AccountPanel() {
       return;
     }
     setEmailBusy(true);
-    const { error } = await supabase.auth.updateUser({ email: email.trim() });
+    const { error } = await supabase.auth.updateUser(
+      { email: email.trim() },
+      { emailRedirectTo: window.location.origin },
+    );
     setEmailBusy(false);
     if (error) {
       setEmailMsg({ type: 'err', text: error.message });
     } else {
-      setEmailMsg({ type: 'ok', text: 'נשלח מייל אישור לכתובת החדשה. האימייל ישתנה רק אחרי האישור.' });
+      setEmailMsg({ type: 'ok', text: 'נשלח קישור אישור לאימייל החדש. לחץ עליו כדי לחזור לאתר ולהשלים את ההחלפה.' });
     }
   }
 

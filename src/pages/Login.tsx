@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Clock, LogIn, Loader2, Fingerprint, MapPin, QrCode, Mail, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
@@ -8,12 +8,23 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [showReset, setShowReset] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMsg, setResetMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const query = new URLSearchParams(window.location.search);
+    const type = hash.get('type') || query.get('type');
+    if (type === 'email_change') {
+      setInfo('האימייל אושר. אפשר להתחבר עם הכתובת החדשה.');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -124,6 +135,9 @@ export default function Login() {
                   />
                 </div>
 
+                {info && (
+                  <div className="rounded-xl bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 animate-fade-in">{info}</div>
+                )}
                 {error && (
                   <div className="rounded-xl bg-rose-50 px-4 py-2.5 text-sm text-rose-700 animate-fade-in">{error}</div>
                 )}

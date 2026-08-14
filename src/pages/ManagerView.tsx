@@ -5,7 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/lib/auth';
 import { useManagerData } from '@/lib/useManagerData';
 import { supabase } from '@/lib/supabase';
-import { updateUserAuth } from '@/lib/updateAuth';
+import { updateUserAuth, sendWorkingEmailChangeLink } from '@/lib/updateAuth';
 import { isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
@@ -2190,15 +2190,31 @@ function AccountSettingsPage() {
       return;
     }
     setBusy(true);
-    const { error } = await updateUserAuth({ userId: session.user.id, email: newEmail.trim() });
-    setBusy(false);
+    const { error, applied } = await updateUserAuth({ userId: session.user.id, email: newEmail.trim() });
     if (error) {
+      setBusy(false);
       setEmailMsg({ type: 'err', text: error });
       return;
     }
-    setEmailMsg({ type: 'ok', text: 'האימייל עודכן בפועל. התחבר מחדש עם האימייל החדש.' });
+    if (applied) {
+      setBusy(false);
+      setEmailMsg({ type: 'ok', text: 'האימייל עודכן. התחבר מחדש עם האימייל החדש.' });
+      setNewEmail('');
+      setTimeout(() => signOut(), 2500);
+      return;
+    }
+
+    const { error: linkErr } = await sendWorkingEmailChangeLink(newEmail.trim());
+    setBusy(false);
+    if (linkErr) {
+      setEmailMsg({ type: 'err', text: linkErr });
+      return;
+    }
+    setEmailMsg({
+      type: 'ok',
+      text: 'נשלח קישור אישור לאימייל החדש. לחץ עליו — הוא יחזיר אותך לאתר וישלים את ההחלפה. אל תתנתק לפני כן.',
+    });
     setNewEmail('');
-    setTimeout(() => signOut(), 2500);
   }
 
   async function handlePasswordChange(e: React.FormEvent) {
