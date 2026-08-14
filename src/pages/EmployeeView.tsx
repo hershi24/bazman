@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { updateUserAuth } from '@/lib/updateAuth';
+import { isDeveloperEmail } from '@/lib/developerAccount';
 import type { Attendance, EmployeeRequest, AllowedLocation, EmployeeLocation } from '@/types';
 import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
 import {
@@ -131,10 +133,7 @@ export default function EmployeeView() {
 
         <footer className="mt-8 border-t border-slate-200 pt-4 text-center text-[11px] text-slate-400">
           <p>
-            פותח על ידי <span className="font-semibold text-slate-500">גליצקי פתרונות טכנולוגיים לעסקים</span> ·{' '}
-            <a href="mailto:e0583296967@gmail.com" className="text-brand-600 underline underline-offset-2 hover:text-brand-700">
-              e0583296967@gmail.com
-            </a>
+            פותח על ידי <span className="font-semibold text-slate-500">גליצקי פתרונות טכנולוגיים לעסקים</span>
           </p>
         </footer>
       </main>
@@ -984,7 +983,7 @@ function HistoryPanel() {
 
 /* ---------------- Account panel ---------------- */
 function AccountPanel() {
-  const { profile, signOut } = useAuth();
+  const { profile, session, signOut } = useAuth();
   const [email, setEmail] = useState('');
   const [emailMsg, setEmailMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [emailBusy, setEmailBusy] = useState(false);
@@ -1005,18 +1004,31 @@ function AccountPanel() {
   async function updateEmail(e: React.FormEvent) {
     e.preventDefault();
     setEmailMsg(null);
+    if (isDeveloperEmail(email) || isDeveloperEmail(session?.user?.email)) {
+      setEmailMsg({ type: 'err', text: 'לא ניתן לשנות את חשבון המפתחים.' });
+      return;
+    }
     if (!email.trim()) {
       setEmailMsg({ type: 'err', text: 'נא להזין כתובת אימייל.' });
       return;
     }
+    if (!session?.user?.id) {
+      setEmailMsg({ type: 'err', text: 'לא נמצא משתמש מחובר.' });
+      return;
+    }
     setEmailBusy(true);
-    const { error } = await supabase.auth.updateUser({ email: email.trim() });
+    const { error, applied } = await updateUserAuth({ userId: session.user.id, email: email.trim() });
     setEmailBusy(false);
     if (error) {
-      setEmailMsg({ type: 'err', text: error.message });
-    } else {
-      setEmailMsg({ type: 'ok', text: 'כתובת האימייל עודכנה. ייתכן שתישלח הודעת אישור לכתובת החדשה.' });
+      setEmailMsg({ type: 'err', text: error });
+      return;
     }
+    if (!applied) {
+      setEmailMsg({ type: 'err', text: 'האימייל לא הוחל מיד. נסה שוב.' });
+      return;
+    }
+    setEmailMsg({ type: 'ok', text: 'האימייל עודכן מיד, בלי מייל אישור. התחבר מחדש עם האימייל החדש.' });
+    setTimeout(() => signOut(), 2500);
   }
 
   async function updatePassword(e: React.FormEvent) {
@@ -1026,11 +1038,15 @@ function AccountPanel() {
       setPassMsg({ type: 'err', text: 'הסיסמה חייבת להכיל לפחות 6 תווים.' });
       return;
     }
+    if (!session?.user?.id) {
+      setPassMsg({ type: 'err', text: 'לא נמצא משתמש מחובר.' });
+      return;
+    }
     setPassBusy(true);
-    const { error } = await supabase.auth.updateUser({ password: newPass });
+    const { error } = await updateUserAuth({ userId: session.user.id, password: newPass });
     setPassBusy(false);
     if (error) {
-      setPassMsg({ type: 'err', text: error.message });
+      setPassMsg({ type: 'err', text: error });
     } else {
       setPassMsg({ type: 'ok', text: 'הסיסמה עודכנה בהצלחה!' });
       setNewPass('');
@@ -1042,6 +1058,7 @@ function AccountPanel() {
       <Card>
         <SectionTitle title="עדכון כתובת אימייל (שם משתמש)" icon={<Mail className="h-5 w-5" />} />
         <form onSubmit={updateEmail} className="space-y-4 p-5">
+          <p className="text-xs text-slate-400">האימייל מתעדכן מיד, בלי מייל אישור ובלי קישור.</p>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">כתובת אימייל</label>
             <input

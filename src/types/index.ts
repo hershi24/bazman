@@ -20,6 +20,7 @@ export type Profile = {
   hours_quota: number | null;
   overtime_eligible: boolean | null;
   overtime_threshold: number | null;
+  hidden?: boolean;
 };
 
 export type Department = {

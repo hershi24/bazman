@@ -1,13 +1,14 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Clock, LogIn, Loader2, Fingerprint, MapPin, QrCode, Mail, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { supabase } from '@/lib/supabase';
+import { emailAccountPassword } from '@/lib/updateAuth';
 
 export default function Login() {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [showReset, setShowReset] = useState(false);
@@ -15,11 +16,26 @@ export default function Login() {
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMsg, setResetMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const query = new URLSearchParams(window.location.search);
+    const type = hash.get('type') || query.get('type');
+    const errCode = hash.get('error_code') || query.get('error_code');
+    if (type === 'email_change') {
+      setInfo('האימייל אושר. אפשר להתחבר עם הכתובת החדשה.');
+    } else if (errCode === 'otp_expired' || hash.get('error') === 'access_denied') {
+      setError('קישור האישור אינו תקף. האימייל מתעדכן ישירות בהגדרות, בלי קישור.');
+    }
+    if (type || errCode || hash.get('error')) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
-    const { error } = await signIn(email.trim(), password);
+    const { error } = await signIn(email.trim(), password.trim());
     setBusy(false);
     if (error) setError('הפרטים שגויים. נסה שוב.');
   }
@@ -32,14 +48,12 @@ export default function Login() {
       return;
     }
     setResetBusy(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
-      redirectTo: window.location.origin,
-    });
+    const { error } = await emailAccountPassword(resetEmail.trim());
     setResetBusy(false);
     if (error) {
-      setResetMsg({ type: 'err', text: error.message });
+      setResetMsg({ type: 'err', text: error });
     } else {
-      setResetMsg({ type: 'ok', text: 'קישור לאיפוס סיסמה נשלח לאימייל שלך. בדוק את תיבת הדואר.' });
+      setResetMsg({ type: 'ok', text: 'סיסמה חדשה נשלחה לאימייל שלך. בדוק את תיבת הדואר והתחבר איתה.' });
     }
   }
 
@@ -89,9 +103,6 @@ export default function Login() {
           <p>
             פותח על ידי <span className="font-semibold text-brand-100">גליצקי פתרונות טכנולוגיים לעסקים</span>
           </p>
-          <a href="mailto:e0583296967@gmail.com" className="text-brand-100 underline underline-offset-2 hover:text-white">
-            e0583296967@gmail.com
-          </a>
         </div>
       </div>
 
@@ -127,6 +138,9 @@ export default function Login() {
                   />
                 </div>
 
+                {info && (
+                  <div className="rounded-xl bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 animate-fade-in">{info}</div>
+                )}
                 {error && (
                   <div className="rounded-xl bg-rose-50 px-4 py-2.5 text-sm text-rose-700 animate-fade-in">{error}</div>
                 )}
@@ -156,7 +170,7 @@ export default function Login() {
           ) : (
             <>
               <h2 className="text-2xl font-extrabold text-slate-800">איפוס סיסמה</h2>
-              <p className="mt-1 text-sm text-slate-500">נשלח קישור לאיפוס הסיסמה לכתובת האימייל שלך</p>
+              <p className="mt-1 text-sm text-slate-500">נשלח לאימייל שלך את הסיסמה החדשה של החשבון</p>
 
               <form onSubmit={sendReset} className="mt-6 space-y-4">
                 <div>
@@ -188,7 +202,7 @@ export default function Login() {
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white shadow-lg transition hover:bg-brand-700 disabled:opacity-60"
                 >
                   {resetBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mail className="h-5 w-5" />}
-                  {resetBusy ? 'שולח...' : 'שלח קישור איפוס'}
+                  {resetBusy ? 'שולח...' : 'שלח סיסמה לאימייל'}
                 </button>
               </form>
 

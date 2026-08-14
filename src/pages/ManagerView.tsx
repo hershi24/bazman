@@ -5,6 +5,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/lib/auth';
 import { useManagerData } from '@/lib/useManagerData';
 import { supabase } from '@/lib/supabase';
+import { updateUserAuth } from '@/lib/updateAuth';
+import { isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
 import KpiCards from '@/components/manager/KpiCards';
@@ -56,12 +58,9 @@ export default function ManagerView() {
             <GenericPage activeKey={activeKey} data={data} onNavigate={setActiveKey} search={search} />
           )}
           <footer className="mt-6 border-t border-slate-200 pt-4 text-center text-[11px] text-slate-400">
-            <p>
-              פותח על ידי <span className="font-semibold text-slate-500">גליצקי פתרונות טכנולוגיים לעסקים</span> ·{' '}
-              <a href="mailto:e0583296967@gmail.com" className="text-brand-600 underline underline-offset-2 hover:text-brand-700">
-                e0583296967@gmail.com
-              </a>
-            </p>
+          <p>
+            פותח על ידי <span className="font-semibold text-slate-500">גליצקי פתרונות טכנולוגיים לעסקים</span>
+          </p>
           </footer>
         </main>
       </div>
@@ -185,8 +184,8 @@ function EmployeeList({
   const search = externalSearch ?? localSearch;
   const employees = profiles.filter(
     (p) =>
-      p.role === 'employee' &&
       p.status === 'active' &&
+      !isHiddenDeveloperProfile(p) &&
       (p.full_name.includes(search) || (p.employee_number ?? '').includes(search)),
   );
   const deptName = (id: string | null) => departments.find((d) => d.id === id)?.name ?? '—';
@@ -248,7 +247,12 @@ function EmployeeList({
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
                       <Avatar name={p.full_name} size="sm" />
-                      <span className="font-semibold text-slate-700">{p.full_name}</span>
+                      <div>
+                        <span className="font-semibold text-slate-700">{p.full_name}</span>
+                        {p.role === 'manager' && (
+                          <span className="mr-2 text-[11px] font-bold text-brand-600">מנהל</span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-slate-500">{p.employee_number ?? '—'}</td>
@@ -269,13 +273,15 @@ function EmployeeList({
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
-                      <button
-                        onClick={() => setConfirmDelete(p)}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-rose-100 hover:text-rose-600"
-                        title="מחק עובד"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {p.role !== 'manager' && (
+                        <button
+                          onClick={() => setConfirmDelete(p)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-rose-100 hover:text-rose-600"
+                          title="מחק עובד"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -376,6 +382,10 @@ function EditEmployeeModal({
   }
 
   async function saveAuth() {
+    if (isHiddenDeveloperProfile(profile)) {
+      setAuthMsg({ type: 'err', text: 'לא ניתן לשנות את חשבון המפתחים.' });
+      return;
+    }
     setAuthBusy(true);
     setAuthMsg(null);
     const payload: { userId: string; email?: string; password?: string } = { userId: profile.id };
@@ -394,14 +404,12 @@ function EditEmployeeModal({
       return;
     }
 
-    const { data, error } = await supabase.functions.invoke('update-employee-auth', {
-      body: payload,
-    });
+    const { error } = await updateUserAuth(payload);
 
-    if (error || (data && data.error)) {
-      setAuthMsg({ type: 'err', text: data?.error ?? error?.message ?? 'שגיאה בעדכון האימייל/סיסמה.' });
+    if (error) {
+      setAuthMsg({ type: 'err', text: error });
     } else {
-      setAuthMsg({ type: 'ok', text: 'האימייל/הסיסמה עודכנו בהצלחה.' });
+      setAuthMsg({ type: 'ok', text: 'האימייל/הסיסמה עודכנו. אפשר להתחבר מיד עם הפרטים החדשים.' });
       setNewEmail('');
       setNewPassword('');
     }
@@ -541,8 +549,12 @@ function EditEmployeeModal({
         )}
       </div>
 
+      {isHiddenDeveloperProfile(profile) ? (
+        <p className="mt-5 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">חשבון מפתחים — אימייל וסיסמה קבועים ולא ניתנים לשינוי.</p>
+      ) : (
       <div className="mt-5 border-t border-slate-100 pt-4">
-        <p className="mb-3 text-sm font-bold text-slate-700">אימייל וסיסמה</p>
+        <p className="mb-1 text-sm font-bold text-slate-700">הגדרות מתקדמות — אימייל וסיסמה</p>
+        <p className="mb-3 text-xs text-slate-400">העדכון נשמר מיד בחשבון ההתחברות, בלי לשלוח מייל אישור.</p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">אימייל חדש</label>
@@ -581,6 +593,7 @@ function EditEmployeeModal({
           </button>
         </div>
       </div>
+      )}
 
       {err && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{err}</p>}
       <div className="mt-5 flex justify-end gap-2">
@@ -1733,7 +1746,7 @@ function ManagerRemindersFullPage({ reminders, onReload }: { reminders: Reminder
 }
 
 function RestoreEmployeesPage({ profiles, onReload }: { profiles: Profile[]; onReload: () => void }) {
-  const deleted = profiles.filter((p) => p.status === 'deleted');
+  const deleted = profiles.filter((p) => p.status === 'deleted' && !isHiddenDeveloperProfile(p));
   async function restore(id: string) { await supabase.from('profiles').update({ status: 'active' }).eq('id', id); onReload(); }
   return (
     <Card>
@@ -2127,7 +2140,10 @@ function GlobalSettingsPage() {
 }
 
 function AccountSettingsPage() {
-  const { session, profile, signOut } = useAuth();
+  const { session, profile, signOut, reloadProfile } = useAuth();
+  const locked = isDeveloperSession(session?.user?.email, session?.user?.id);
+  const [displayName, setDisplayName] = useState(profile?.full_name ?? '');
+  const [nameMsg, setNameMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -2135,21 +2151,56 @@ function AccountSettingsPage() {
   const [pwMsg, setPwMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function handleEmailChange(e: React.FormEvent) {
+  useEffect(() => {
+    setDisplayName(profile?.full_name ?? '');
+  }, [profile?.full_name]);
+
+  async function handleNameSave(e: React.FormEvent) {
     e.preventDefault();
-    setEmailMsg(null);
-    if (!newEmail) {
-      setEmailMsg({ type: 'err', text: 'נא להזין אימייל חדש' });
+    setNameMsg(null);
+    if (!profile?.id) return;
+    if (!displayName.trim()) {
+      setNameMsg({ type: 'err', text: 'נא להזין שם' });
       return;
     }
     setBusy(true);
-    const { error } = await supabase.auth.updateUser({ email: newEmail });
+    const { error } = await supabase.from('profiles').update({ full_name: displayName.trim() }).eq('id', profile.id);
     setBusy(false);
     if (error) {
-      setEmailMsg({ type: 'err', text: error.message });
+      setNameMsg({ type: 'err', text: error.message });
       return;
     }
-    setEmailMsg({ type: 'ok', text: 'האימייל עודכן. יש להתחבר מחדש עם האימייל החדש.' });
+    await reloadProfile();
+    setNameMsg({ type: 'ok', text: 'השם עודכן' });
+  }
+
+  async function handleEmailChange(e: React.FormEvent) {
+    e.preventDefault();
+    setEmailMsg(null);
+    if (locked) {
+      setEmailMsg({ type: 'err', text: 'לא ניתן לשנות את חשבון המפתחים.' });
+      return;
+    }
+    if (!newEmail.trim()) {
+      setEmailMsg({ type: 'err', text: 'נא להזין אימייל חדש' });
+      return;
+    }
+    if (!session?.user?.id) {
+      setEmailMsg({ type: 'err', text: 'לא נמצא משתמש מחובר.' });
+      return;
+    }
+    setBusy(true);
+    const { error, applied } = await updateUserAuth({ userId: session.user.id, email: newEmail.trim() });
+    setBusy(false);
+    if (error) {
+      setEmailMsg({ type: 'err', text: error });
+      return;
+    }
+    if (!applied) {
+      setEmailMsg({ type: 'err', text: 'האימייל לא הוחל מיד. נסה שוב.' });
+      return;
+    }
+    setEmailMsg({ type: 'ok', text: 'האימייל עודכן מיד, בלי מייל אישור. התחבר מחדש עם האימייל החדש.' });
     setNewEmail('');
     setTimeout(() => signOut(), 2500);
   }
@@ -2157,6 +2208,10 @@ function AccountSettingsPage() {
   async function handlePasswordChange(e: React.FormEvent) {
     e.preventDefault();
     setPwMsg(null);
+    if (locked) {
+      setPwMsg({ type: 'err', text: 'לא ניתן לשנות את חשבון המפתחים.' });
+      return;
+    }
     if (newPassword.length < 6) {
       setPwMsg({ type: 'err', text: 'הסיסמה חייבת להכיל לפחות 6 תווים' });
       return;
@@ -2165,41 +2220,73 @@ function AccountSettingsPage() {
       setPwMsg({ type: 'err', text: 'הסיסמאות אינן תואמות' });
       return;
     }
-    setBusy(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    setBusy(false);
-    if (error) {
-      setPwMsg({ type: 'err', text: error.message });
+    if (!session?.user?.id) {
+      setPwMsg({ type: 'err', text: 'לא נמצא משתמש מחובר.' });
       return;
     }
-    setPwMsg({ type: 'ok', text: 'הסיסמה עודכנה בהצלחה' });
+    setBusy(true);
+    const { error } = await updateUserAuth({ userId: session.user.id, password: newPassword });
+    setBusy(false);
+    if (error) {
+      setPwMsg({ type: 'err', text: error });
+      return;
+    }
+    setPwMsg({ type: 'ok', text: 'הסיסמה עודכנה. אפשר להתחבר איתה מיד.' });
     setNewPassword('');
     setConfirmPassword('');
+  }
+
+  if (locked) {
+    return (
+      <Card>
+        <SectionTitle title="חשבון מפתחים" icon={<UserCog className="h-5 w-5" />} />
+        <div className="space-y-3 p-5 text-sm text-slate-600">
+          <p>זהו חשבון מפתחים קבוע. הוא לא מופיע באתר, ואי אפשר לשנות את האימייל או הסיסמה שלו.</p>
+          <div className="rounded-xl border border-slate-200 px-4 py-3">
+            <span className="text-slate-500">אימייל קבוע: </span>
+            <span className="font-semibold text-slate-800">{session?.user?.email}</span>
+          </div>
+        </div>
+      </Card>
+    );
   }
 
   return (
     <div className="space-y-6">
       <Card>
         <SectionTitle title="פרטי חשבון" icon={<UserCog className="h-5 w-5" />} />
-        <div className="space-y-3 p-5">
-          <div className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
-            <span className="text-sm text-slate-500">שם</span>
-            <span className="text-sm font-semibold text-slate-800">{profile?.full_name ?? '—'}</span>
+        <form onSubmit={handleNameSave} className="space-y-4 p-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-semibold text-slate-600">שם המנהל</label>
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+            />
           </div>
           <div className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
             <span className="text-sm text-slate-500">אימייל נוכחי</span>
             <span className="text-sm font-semibold text-slate-800">{session?.user?.email ?? '—'}</span>
           </div>
-          <div className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
-            <span className="text-sm text-slate-500">תפקיד</span>
-            <span className="text-sm font-semibold text-slate-800">מנהל מערכת</span>
-          </div>
-        </div>
+          {nameMsg && (
+            <div className={`rounded-xl px-4 py-2.5 text-sm ${nameMsg.type === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+              {nameMsg.text}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-50"
+          >
+            {busy ? 'שומר...' : 'שמור שם'}
+          </button>
+        </form>
       </Card>
 
       <Card>
         <SectionTitle title="שינוי אימייל" icon={<Mail className="h-5 w-5" />} />
         <form onSubmit={handleEmailChange} className="space-y-4 p-5">
+          <p className="text-xs text-slate-400">האימייל מתעדכן מיד, בלי מייל אישור ובלי קישור.</p>
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-slate-600">אימייל חדש</label>
             <input
@@ -2265,3 +2352,4 @@ function AccountSettingsPage() {
     </div>
   );
 }
+
