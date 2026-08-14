@@ -9,12 +9,28 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
-
 const DEVELOPER_EMAIL = 'e0583296967@gmail.com';
 
 const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
+
+async function adminPutUser(userId: string, body: Record<string, unknown>) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      apikey: SERVICE_ROLE_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(json.msg || json.message || json.error_description || json.error || 'Auth update failed');
+  }
+  return json;
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -48,19 +64,21 @@ Deno.serve(async (req: Request) => {
       .eq('id', userData.user.id)
       .single();
 
-    if (!profile || profile.role !== 'manager') {
-      return new Response(JSON.stringify({ error: 'Only managers can update credentials' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
     const body = await req.json();
     const { userId, email, password } = body as { userId: string; email?: string; password?: string };
 
     if (!userId) {
       return new Response(JSON.stringify({ error: 'Missing userId' }), {
         status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const isSelf = userData.user.id === userId;
+    const isManager = profile?.role === 'manager';
+    if (!isManager && !isSelf) {
+      return new Response(JSON.stringify({ error: 'Only managers can update other users' }), {
+        status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -89,7 +107,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const update: { email?: string; password?: string; email_confirm?: boolean } = {};
+    const update: Record<string, unknown> = {};
     if (nextEmail) {
       update.email = nextEmail;
       update.email_confirm = true;
@@ -103,18 +121,40 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { error: authErr } = await adminClient.auth.admin.updateUserById(userId, update);
-
-    if (authErr) {
-      return new Response(JSON.stringify({ error: authErr.message }), {
+    try {
+      await adminPutUser(userId, update);
+    } catch (err) {
+      return new Response(JSON.stringify({ error: String(err) }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
+    if (nextEmail) {
+      // Confirm again in case the first call only queued an email change.
+      try {
+        await adminPutUser(userId, { email: nextEmail, email_confirm: true });
+      } catch {
+        // already applied
+      }
+    }
+
     const { data: after } = await adminClient.auth.admin.getUserById(userId);
-    const actualEmail = (after.user?.email ?? '').toLowerCase();
-    const applied = !nextEmail || actualEmail === nextEmail;
+    let actualEmail = (after.user?.email ?? '').toLowerCase();
+    let pendingEmail = String((after.user as { new_email?: string } | undefined)?.new_email ?? '').toLowerCase();
+    let applied = !nextEmail || (actualEmail === nextEmail && !pendingEmail);
+
+    if (nextEmail && !applied) {
+      try {
+        await adminClient.auth.admin.updateUserById(userId, { email: nextEmail, email_confirm: true });
+        const { data: retry } = await adminClient.auth.admin.getUserById(userId);
+        actualEmail = (retry.user?.email ?? '').toLowerCase();
+        pendingEmail = String((retry.user as { new_email?: string } | undefined)?.new_email ?? '').toLowerCase();
+        applied = actualEmail === nextEmail && !pendingEmail;
+      } catch {
+        // keep applied=false
+      }
+    }
 
     return new Response(JSON.stringify({ success: true, email: actualEmail || null, applied }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

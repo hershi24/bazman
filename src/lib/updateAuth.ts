@@ -44,22 +44,29 @@ export async function updateUserAuth(payload: {
     return { error: result.error ?? 'שגיאה בעדכון האימייל/סיסמה.', applied: false };
   }
 
-  return { error: null, applied: result.applied === true };
+  return { error: null, applied: result.applied !== false };
 }
 
-export async function sendWorkingEmailChangeLink(newEmail: string): Promise<{ error: string | null }> {
-  const redirectTo = window.location.origin;
-  const resend = await supabase.auth.resend({
-    type: 'email_change',
-    email: newEmail.trim(),
-    options: { emailRedirectTo: redirectTo },
+export async function emailAccountPassword(email: string): Promise<{ error: string | null }> {
+  const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/email-account-password`;
+  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+  const res = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${anon}`,
+      apikey: anon,
+    },
+    body: JSON.stringify({ email: email.trim() }),
   });
-  if (!resend.error) return { error: null };
-
-  const { error } = await supabase.auth.updateUser(
-    { email: newEmail.trim() },
-    { emailRedirectTo: redirectTo },
-  );
-  if (error) return { error: error.message };
+  let result: { error?: string } = {};
+  try {
+    result = await res.json();
+  } catch {
+    return { error: 'שגיאה בשליחת הסיסמה לאימייל.' };
+  }
+  if (!res.ok || result.error) {
+    return { error: result.error ?? 'שגיאה בשליחת הסיסמה לאימייל.' };
+  }
   return { error: null };
 }

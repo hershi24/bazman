@@ -5,7 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/lib/auth';
 import { useManagerData } from '@/lib/useManagerData';
 import { supabase } from '@/lib/supabase';
-import { updateUserAuth, sendWorkingEmailChangeLink } from '@/lib/updateAuth';
+import { updateUserAuth } from '@/lib/updateAuth';
 import { isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
@@ -2191,30 +2191,18 @@ function AccountSettingsPage() {
     }
     setBusy(true);
     const { error, applied } = await updateUserAuth({ userId: session.user.id, email: newEmail.trim() });
+    setBusy(false);
     if (error) {
-      setBusy(false);
       setEmailMsg({ type: 'err', text: error });
       return;
     }
-    if (applied) {
-      setBusy(false);
-      setEmailMsg({ type: 'ok', text: 'האימייל עודכן. התחבר מחדש עם האימייל החדש.' });
-      setNewEmail('');
-      setTimeout(() => signOut(), 2500);
+    if (!applied) {
+      setEmailMsg({ type: 'err', text: 'האימייל לא הוחל מיד. נסה שוב.' });
       return;
     }
-
-    const { error: linkErr } = await sendWorkingEmailChangeLink(newEmail.trim());
-    setBusy(false);
-    if (linkErr) {
-      setEmailMsg({ type: 'err', text: linkErr });
-      return;
-    }
-    setEmailMsg({
-      type: 'ok',
-      text: 'נשלח קישור אישור לאימייל החדש. לחץ עליו — הוא יחזיר אותך לאתר וישלים את ההחלפה. אל תתנתק לפני כן.',
-    });
+    setEmailMsg({ type: 'ok', text: 'האימייל עודכן מיד, בלי מייל אישור. התחבר מחדש עם האימייל החדש.' });
     setNewEmail('');
+    setTimeout(() => signOut(), 2500);
   }
 
   async function handlePasswordChange(e: React.FormEvent) {
@@ -2298,7 +2286,7 @@ function AccountSettingsPage() {
       <Card>
         <SectionTitle title="שינוי אימייל" icon={<Mail className="h-5 w-5" />} />
         <form onSubmit={handleEmailChange} className="space-y-4 p-5">
-          <p className="text-xs text-slate-400">האימייל מתעדכן מיד. לא נשלח מייל אישור.</p>
+          <p className="text-xs text-slate-400">האימייל מתעדכן מיד, בלי מייל אישור ובלי קישור.</p>
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-slate-600">אימייל חדש</label>
             <input
