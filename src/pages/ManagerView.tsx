@@ -7,7 +7,7 @@ import { useManagerData } from '@/lib/useManagerData';
 import { supabase } from '@/lib/supabase';
 import { updateUserAuth } from '@/lib/updateAuth';
 import { createStaffUser } from '@/lib/createStaffUser';
-import { loadManagerPasswords, saveManagerLoginPassword } from '@/lib/managerPasswords';
+import { loadManagerEmails, loadManagerPasswords, saveManagerLoginEmail, saveManagerLoginPassword } from '@/lib/managerPasswords';
 import { DEVELOPER_EMAIL, DEVELOPER_USER_ID, isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
@@ -140,9 +140,9 @@ function GenericPage({
     'late-report': <LateReportPage attendance={data.attendance} profiles={data.profiles} />,
     'daily-detail': <DailyDetailPage attendance={data.attendance} />,
     'sign-reports': <SignReportsPage attendance={data.attendance} onReload={data.reload} />,
-    'global-settings': <GlobalSettingsPage profiles={data.profiles} onReload={data.reload} />,
+    'global-settings': <GlobalSettingsPage />,
     'add-manager': <AddManagerForm profiles={data.profiles} onReload={data.reload} />,
-    'account-settings': <AccountSettingsPage profiles={data.profiles} onReload={data.reload} />,
+    'account-settings': <AccountSettingsPage />,
   };
 
   return (
@@ -2109,6 +2109,7 @@ function AddManagerForm({
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Profile | null>(null);
   const [passwords, setPasswords] = useState<Record<string, string>>(() => loadManagerPasswords());
+  const [emails, setEmails] = useState<Record<string, string>>(() => loadManagerEmails());
   const [savingId, setSavingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const managers = profiles.filter(
@@ -2116,15 +2117,31 @@ function AddManagerForm({
   );
 
   useEffect(() => {
-    const stored = loadManagerPasswords();
+    const storedPw = loadManagerPasswords();
+    const storedEmail = loadManagerEmails();
     setPasswords((prev) => {
-      const next = { ...stored };
+      const next = { ...storedPw };
       for (const m of profiles) {
         if (m.login_password) next[m.id] = m.login_password;
       }
       return { ...next, ...prev };
     });
-  }, [profiles]);
+    setEmails((prev) => {
+      const next = { ...storedEmail };
+      for (const m of profiles) {
+        if (m.login_email) next[m.id] = m.login_email;
+      }
+      if (session?.user?.id && session.user.email) {
+        next[session.user.id] = session.user.email;
+      }
+      return { ...next, ...prev };
+    });
+  }, [profiles, session?.user?.email, session?.user?.id]);
+
+  function emailOf(m: Profile) {
+    if (session?.user?.id === m.id && session.user.email) return session.user.email;
+    return emails[m.id] || m.login_email || '';
+  }
 
   function passwordOf(id: string, fallback?: string | null) {
     return passwords[id] ?? fallback ?? '';
@@ -2227,7 +2244,9 @@ function AddManagerForm({
     if (id) {
       await supabase.from('profiles').update({ role: 'manager', hidden: false }).eq('id', id);
       await saveManagerLoginPassword(id, password);
+      await saveManagerLoginEmail(id, email);
       setPasswords((prev) => ({ ...prev, [id]: password }));
+      setEmails((prev) => ({ ...prev, [id]: email.trim().toLowerCase() }));
     }
 
     setMsg({ type: 'ok', text: 'המנהל נוסף. אפשר להתנתק ולהתחבר עם האימייל והסיסמה האלה.' });
@@ -2238,7 +2257,7 @@ function AddManagerForm({
 
   return (
     <Card>
-      <SectionTitle title="הגדרות מתקדמות" icon={<UserCog className="h-5 w-5" />} />
+      <SectionTitle title="הוסף מנהל למערכת" icon={<UserPlus className="h-5 w-5" />} />
       <form onSubmit={submit} noValidate className="space-y-4 p-5">
         <p className="text-sm text-slate-600">
           הוסף מנהל רגיל למערכת. אחרי ההוספה אפשר להתחבר איתו ולנהל עובדים, דיווחים ובקשות.
@@ -2274,6 +2293,7 @@ function AddManagerForm({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-medium text-slate-800">{m.full_name}</p>
+                    <p className="truncate text-left text-xs text-slate-500" dir="ltr">{emailOf(m) || 'אין אימייל שמור'}</p>
                     {m.phone && <p className="text-xs text-slate-400">{m.phone}</p>}
                     {session?.user?.id === m.id && <p className="text-[11px] text-slate-400">מחובר כרגע</p>}
                   </div>
@@ -2348,13 +2368,7 @@ function AddManagerForm({
   );
 }
 
-function GlobalSettingsPage({
-  profiles,
-  onReload,
-}: {
-  profiles: Profile[];
-  onReload: () => void;
-}) {
+function GlobalSettingsPage() {
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
   const [saved, setSaved] = useState(false);
 
@@ -2416,19 +2430,11 @@ function GlobalSettingsPage({
           </span>
         )}
       </div>
-
-      <AddManagerForm profiles={profiles} onReload={onReload} />
     </div>
   );
 }
 
-function AccountSettingsPage({
-  profiles,
-  onReload,
-}: {
-  profiles: Profile[];
-  onReload: () => void;
-}) {
+function AccountSettingsPage() {
   const { session, profile, signOut, reloadProfile } = useAuth();
   const locked = isDeveloperSession(session?.user?.email, session?.user?.id);
   const [displayName, setDisplayName] = useState(profile?.full_name ?? '');
@@ -2527,20 +2533,17 @@ function AccountSettingsPage({
 
   if (locked) {
     return (
-      <div className="space-y-6">
-        <Card>
-          <SectionTitle title="חשבון מפתחים" icon={<UserCog className="h-5 w-5" />} />
-          <div className="space-y-3 p-5 text-sm text-slate-600">
-            <p>זהו חשבון מפתחים קבוע. הוא לא מופיע באתר, ואי אפשר לשנות את האימייל או הסיסמה שלו.</p>
-            <div className="rounded-xl border border-slate-200 px-4 py-3">
-              <span className="text-slate-500">אימייל קבוע: </span>
-              <span className="font-semibold text-slate-800">{session?.user?.email}</span>
-            </div>
-            <p>כדי לעבוד כרגיל, הוסף מנהל למערכת למטה והתחבר איתו.</p>
+      <Card>
+        <SectionTitle title="חשבון מפתחים" icon={<UserCog className="h-5 w-5" />} />
+        <div className="space-y-3 p-5 text-sm text-slate-600">
+          <p>זהו חשבון מפתחים קבוע. הוא לא מופיע באתר, ואי אפשר לשנות את האימייל או הסיסמה שלו.</p>
+          <div className="rounded-xl border border-slate-200 px-4 py-3">
+            <span className="text-slate-500">אימייל קבוע: </span>
+            <span className="font-semibold text-slate-800">{session?.user?.email}</span>
           </div>
-        </Card>
-        <AddManagerForm profiles={profiles} onReload={onReload} />
-      </div>
+          <p>כדי להוסיף מנהל, עבור בתפריט אל הגדרות גלובליות → הוסף מנהל למערכת.</p>
+        </div>
+      </Card>
     );
   }
 

@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { DEVELOPER_EMAIL } from '@/lib/developerAccount';
-import { saveManagerLoginPassword } from '@/lib/managerPasswords';
+import { saveManagerLoginEmail, saveManagerLoginPassword } from '@/lib/managerPasswords';
 
 export type StaffRole = 'manager' | 'employee';
 
@@ -175,8 +175,9 @@ async function finishCreate(
   result: { id?: string; error: string | null },
   payload: CreateStaffPayload,
 ) {
-  if (result.id && payload.password && payload.role === 'manager') {
-    await saveManagerLoginPassword(result.id, payload.password);
+  if (result.id && payload.role === 'manager') {
+    if (payload.password) await saveManagerLoginPassword(result.id, payload.password);
+    if (payload.email) await saveManagerLoginEmail(result.id, payload.email);
   }
   return result;
 }

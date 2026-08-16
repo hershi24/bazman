@@ -22,6 +22,7 @@ export type Profile = {
   overtime_threshold: number | null;
   hidden?: boolean;
   login_password?: string | null;
+  login_email?: string | null;
 };
 
 export type Department = {
