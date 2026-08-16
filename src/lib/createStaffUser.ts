@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { DEVELOPER_EMAIL } from '@/lib/developerAccount';
 import { saveManagerLoginEmail, saveManagerLoginPassword } from '@/lib/managerPasswords';
 
 export type StaffRole = 'manager' | 'employee';
@@ -139,9 +138,6 @@ export async function createStaffUser(
   payload: CreateStaffPayload,
 ): Promise<{ id?: string; error: string | null }> {
   const email = payload.email.trim().toLowerCase();
-  if (email === DEVELOPER_EMAIL) {
-    return { error: 'לא ניתן להשתמש באימייל של חשבון המפתחים.' };
-  }
   if (!payload.full_name.trim() || !email || !payload.password) {
     return { error: 'נא למלא שם, אימייל וסיסמה.' };
   }

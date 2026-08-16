@@ -3,8 +3,6 @@ import { Clock, LogIn, Loader2, Fingerprint, MapPin, QrCode, Mail, ArrowRight, C
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { emailAccountPassword } from '@/lib/updateAuth';
-import { isDeveloperEmail } from '@/lib/developerAccount';
-
 export default function Login() {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
@@ -51,10 +49,6 @@ export default function Login() {
     const addr = resetEmail.trim().toLowerCase();
     if (!addr || !addr.includes('@')) {
       setResetMsg({ type: 'err', text: 'נא להזין כתובת אימייל.' });
-      return;
-    }
-    if (isDeveloperEmail(addr)) {
-      setResetMsg({ type: 'ok', text: 'אם החשבון קיים, נשלח קישור לאימייל.' });
       return;
     }
     setResetBusy(true);

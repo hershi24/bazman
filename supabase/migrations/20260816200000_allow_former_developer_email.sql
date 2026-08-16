@@ -1,6 +1,4 @@
--- Create employees/managers from the app without the edge function.
--- Confirms email immediately so the new user can sign in.
-
+-- Allow the former locked developer email to be used as a normal staff account.
 CREATE OR REPLACE FUNCTION public.create_staff_user(
   p_email text,
   p_password text,
@@ -121,6 +119,3 @@ BEGIN
   RETURN uid;
 END;
 $$;
-
-REVOKE ALL ON FUNCTION public.create_staff_user(text, text, text, text, text, text, uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.create_staff_user(text, text, text, text, text, text, uuid) TO authenticated;

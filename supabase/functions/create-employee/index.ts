@@ -67,13 +67,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    if (String(email).trim().toLowerCase() === DEVELOPER_EMAIL) {
-      return new Response(JSON.stringify({ error: 'Cannot assign the developer email' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
     if (String(password).length < 6) {
       return new Response(JSON.stringify({ error: 'Password should be at least 6 characters' }), {
         status: 400,

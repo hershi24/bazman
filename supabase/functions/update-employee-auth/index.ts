@@ -91,21 +91,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const targetEmail = (targetUser.user.email ?? '').toLowerCase();
-    if (targetEmail === DEVELOPER_EMAIL) {
-      return new Response(JSON.stringify({ error: 'Cannot modify the developer account' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
     const nextEmail = email?.trim().toLowerCase();
-    if (nextEmail === DEVELOPER_EMAIL) {
-      return new Response(JSON.stringify({ error: 'Cannot assign the developer email' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
 
     const update: Record<string, unknown> = {};
     if (nextEmail) {

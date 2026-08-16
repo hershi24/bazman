@@ -25,7 +25,6 @@ import {
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { updateUserAuth } from '@/lib/updateAuth';
-import { isDeveloperEmail } from '@/lib/developerAccount';
 import type { Attendance, EmployeeRequest, AllowedLocation, EmployeeLocation } from '@/types';
 import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
 import {
@@ -1040,10 +1039,6 @@ function AccountPanel() {
   async function updateEmail(e: React.FormEvent) {
     e.preventDefault();
     setEmailMsg(null);
-    if (isDeveloperEmail(email) || isDeveloperEmail(session?.user?.email)) {
-      setEmailMsg({ type: 'err', text: 'לא ניתן לשנות את חשבון המפתחים.' });
-      return;
-    }
     if (!email.trim()) {
       setEmailMsg({ type: 'err', text: 'נא להזין כתובת אימייל.' });
       return;

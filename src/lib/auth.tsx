@@ -3,8 +3,6 @@ import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { Profile } from '@/types';
 
-const PRIMARY_MANAGER_EMAIL = 'e0583296967@gmail.com';
-
 type AuthContextValue = {
   session: Session | null;
   profile: Profile | null;
@@ -19,13 +17,11 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 function profileFromUser(user: User): Profile {
-  const email = (user.email ?? '').toLowerCase();
-  const isPrimary = email === PRIMARY_MANAGER_EMAIL;
-  const role = isPrimary || user.user_metadata?.role === 'manager' ? 'manager' : 'employee';
+  const role = user.user_metadata?.role === 'manager' ? 'manager' : 'employee';
   return {
     id: user.id,
     role,
-    full_name: String(user.user_metadata?.full_name ?? (isPrimary ? 'מנהל ראשי' : 'משתמש')),
+    full_name: String(user.user_metadata?.full_name ?? 'משתמש'),
     employee_number: null,
     department_id: null,
     phone: null,
@@ -39,7 +35,7 @@ function profileFromUser(user: User): Profile {
     hours_quota: null,
     overtime_eligible: null,
     overtime_threshold: null,
-    hidden: isPrimary,
+    hidden: false,
   };
 }
 
@@ -127,23 +123,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       : [passClean, `-${passClean}`];
 
     setLoading(true);
-
-    if (emailClean.toLowerCase() === PRIMARY_MANAGER_EMAIL) {
-      try {
-        const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-        await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ensure-primary-manager`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${anon}`,
-            apikey: anon,
-          },
-          body: '{}',
-        });
-      } catch {
-        /* login still proceeds with the password the user typed */
-      }
-    }
 
     let lastError: string | null = null;
 

@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { updateUserAuth } from '@/lib/updateAuth';
 import { createStaffUser } from '@/lib/createStaffUser';
 import { loadManagerEmails, loadManagerEmailsFromServer, loadManagerPasswords, rememberManagerEmail, saveManagerLoginEmail, saveManagerLoginPassword } from '@/lib/managerPasswords';
-import { DEVELOPER_EMAIL, DEVELOPER_USER_ID, isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
+import { isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
 import KpiCards from '@/components/manager/KpiCards';
@@ -2184,8 +2184,8 @@ function AddManagerForm({
   }
 
   async function deleteManager(p: Profile) {
-    if (isHiddenDeveloperProfile(p) || p.id === DEVELOPER_USER_ID) {
-      setMsg({ type: 'err', text: 'לא ניתן למחוק את חשבון המפתחים.' });
+    if (isHiddenDeveloperProfile(p)) {
+      setMsg({ type: 'err', text: 'לא ניתן למחוק את החשבון הזה.' });
       setConfirmDelete(null);
       return;
     }
@@ -2218,11 +2218,6 @@ function AddManagerForm({
 
     if (!fullName || !email || !password) {
       setMsg({ type: 'err', text: 'נא למלא שם, אימייל וסיסמה.' });
-      setBusy(false);
-      return;
-    }
-    if (email.toLowerCase() === DEVELOPER_EMAIL) {
-      setMsg({ type: 'err', text: 'לא ניתן להשתמש באימייל של חשבון המפתחים.' });
       setBusy(false);
       return;
     }

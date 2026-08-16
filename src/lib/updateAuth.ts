@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase';
-import { isDeveloperEmail, isDeveloperSession } from '@/lib/developerAccount';
 
 export type AuthUpdateResult = {
   error: string | null;
@@ -15,17 +14,9 @@ export async function updateUserAuth(payload: {
   email?: string;
   password?: string;
 }): Promise<AuthUpdateResult> {
-  if (isDeveloperSession(payload.email, payload.userId) || isDeveloperEmail(payload.email)) {
-    return { error: 'לא ניתן לשנות את חשבון המפתחים.', applied: false };
-  }
-
   const { data: refreshed } = await supabase.auth.refreshSession();
   const session = refreshed.session ?? (await supabase.auth.getSession()).data.session;
-  const currentEmail = session?.user?.email;
   const currentId = session?.user?.id;
-  if (isDeveloperSession(currentEmail, currentId) && payload.userId === currentId) {
-    return { error: 'לא ניתן לשנות את חשבון המפתחים.', applied: false };
-  }
   if (!session?.access_token || !currentId) {
     return { error: 'יש להתחבר מחדש ואז לנסות שוב.', applied: false };
   }
