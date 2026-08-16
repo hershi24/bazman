@@ -30,6 +30,9 @@ export function RequestsTable({
     return () => document.removeEventListener('mousedown', handleClick);
   }, [menuOpenId]);
 
+  const [removedIds, setRemovedIds] = useState<string[]>([]);
+  const visibleRequests = requests.filter((r) => !removedIds.includes(r.id));
+
   function flashToast(type: 'ok' | 'err', text: string) {
     setToast({ type, text });
     setTimeout(() => setToast(null), 2500);
@@ -90,41 +93,26 @@ export function RequestsTable({
   }
 
   async function deleteRequest(id: string) {
-    if (!confirm('האם למחוק את הבקשה?')) return;
+    if (!confirm('האם למחוק את הבקשה לחלוטין?')) return;
     setPendingId(id);
-    const { data: sessionData } = await supabase.auth.getSession();
-    const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-request`;
-    const res = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${sessionData.session?.access_token ?? ''}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({ id }),
-    });
-    let result: { error?: string } = {};
-    try {
-      result = await res.json();
-    } catch {
-      result = {};
-    }
+    setMenuOpenId(null);
 
-    if (!res.ok) {
-      const { data, error } = await supabase.from('requests').delete().eq('id', id).select('id');
-      setPendingId(null);
+    await supabase.rpc('delete_employee_request', { p_id: id });
+    await supabase.from('requests').delete().eq('id', id);
+
+    const { data: still } = await supabase.from('requests').select('id').eq('id', id).maybeSingle();
+    const deleted = !still;
+
+    setPendingId(null);
+    if (!deleted) {
+      flashToast('err', 'הבקשה לא נמחקה בשרת. רענן אחרי עדכון GitHub, או הרץ שוב את ה-SQL ב-Supabase.');
       onReload();
-      if (error || !data || data.length === 0) {
-        flashToast('err', result.error || 'אין הרשאה למחיקת הבקשה');
-      } else {
-        flashToast('ok', 'הבקשה נמחקה');
-      }
       return;
     }
 
-    setPendingId(null);
+    setRemovedIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    flashToast('ok', 'הבקשה נמחקה לחלוטין');
     onReload();
-    flashToast('ok', 'הבקשה נמחקה');
   }
 
   return (
@@ -132,10 +120,10 @@ export function RequestsTable({
       <SectionTitle
         title="בקשות מהעובדים"
         icon={<Inbox />}
-        action={<Badge color="orange">{requests.filter((r) => r.status === 'pending').length} ממתינות</Badge>}
+        action={<Badge color="orange">{visibleRequests.filter((r) => r.status === 'pending').length} ממתינות</Badge>}
       />
       <div>
-        {requests.length === 0 ? (
+        {visibleRequests.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-slate-400">אין בקשות</p>
         ) : (
           <table className="w-full text-right text-sm">
@@ -152,7 +140,7 @@ export function RequestsTable({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {[...requests]
+              {[...visibleRequests]
                 .sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0))
                 .map((r) => (
                 <Fragment key={r.id}>
