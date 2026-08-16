@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Clock, LogIn, Loader2, Fingerprint, MapPin, QrCode, Mail, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { supabase } from '@/lib/supabase';
 import { emailAccountPassword } from '@/lib/updateAuth';
+
 export default function Login() {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
@@ -52,26 +52,15 @@ export default function Login() {
       return;
     }
     setResetBusy(true);
-    const viaFn = await emailAccountPassword(addr, window.location.origin);
-    if (!viaFn.error) {
-      setResetBusy(false);
-      setResetMsg({
-        type: 'ok',
-        text: 'אם החשבון קיים, נשלח מייל. בדוק גם בספאם. אם אין מייל, צריך להפעיל SMTP ב-Supabase (Authentication → Emails).',
-      });
-      return;
-    }
-    const { error } = await supabase.auth.resetPasswordForEmail(addr, {
-      redirectTo: window.location.origin,
-    });
+    const { error } = await emailAccountPassword(addr);
     setResetBusy(false);
     if (error) {
-      setResetMsg({ type: 'err', text: viaFn.error || error.message });
+      setResetMsg({ type: 'err', text: error });
       return;
     }
     setResetMsg({
       type: 'ok',
-      text: 'אם החשבון קיים, נשלח מייל. בדוק גם בספאם. אם אין מייל, צריך להפעיל SMTP ב-Supabase (Authentication → Emails).',
+      text: 'סיסמה חדשה נשלחה לאימייל שלך. בדוק גם בספאם והתחבר איתה.',
     });
   }
 
@@ -193,7 +182,7 @@ export default function Login() {
           ) : (
             <>
               <h2 className="text-2xl font-extrabold text-slate-800">איפוס סיסמה</h2>
-              <p className="mt-1 text-sm text-slate-500">נשלח לאימייל שלך קישור לבחירת סיסמה חדשה</p>
+              <p className="mt-1 text-sm text-slate-500">נשלח לאימייל שלך את הסיסמה החדשה של החשבון</p>
 
               <form onSubmit={sendReset} noValidate className="mt-6 space-y-4">
                 <div>
@@ -230,7 +219,7 @@ export default function Login() {
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white shadow-lg transition hover:bg-brand-700 disabled:opacity-60"
                 >
                   {resetBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mail className="h-5 w-5" />}
-                  {resetBusy ? 'שולח...' : 'שלח קישור לאימייל'}
+                  {resetBusy ? 'שולח...' : 'שלח סיסמה לאימייל'}
                 </button>
               </form>
 

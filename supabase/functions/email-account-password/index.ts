@@ -8,13 +8,21 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-async function sendMail(to: string, subject: string, text: string, html: string) {
+function randomPassword() {
+  const n = crypto.getRandomValues(new Uint32Array(2));
+  return `Bz${(n[0] % 1000000).toString().padStart(6, '0')}`;
+}
+
+async function sendPasswordEmail(to: string, password: string) {
+  const subject = 'הסיסמה שלך במערכת BeZman';
+  const text = `שלום,\n\nהסיסמה לכניסה למערכת BeZman עבור ${to} היא:\n\n${password}\n\nאם לא ביקשת איפוס סיסמה, פנה למנהל המערכת.`;
+  const html = `<p>שלום,</p><p>הסיסמה לכניסה למערכת <strong>BeZman</strong> עבור ${to} היא:</p><p style="font-size:20px;font-weight:700;letter-spacing:1px">${password}</p><p>אם לא ביקשת איפוס סיסמה, פנה למנהל המערכת.</p>`;
+
   const errors: string[] = [];
   const resendKey = Deno.env.get('RESEND_API_KEY');
   if (resendKey) {
@@ -54,7 +62,6 @@ Deno.serve(async (req: Request) => {
   try {
     const body = await req.json();
     const email = String(body.email ?? '').trim().toLowerCase();
-    const redirectTo = String(body.redirectTo ?? '').trim() || SUPABASE_URL.replace('.supabase.co', '');
     if (!email || !email.includes('@')) {
       return new Response(JSON.stringify({ error: 'נא להזין אימייל.' }), {
         status: 400,
@@ -76,43 +83,18 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    await admin.auth.admin.updateUserById(user.id, { email_confirm: true });
+    const password = randomPassword();
+    await sendPasswordEmail(email, password);
 
-    const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
-      type: 'recovery',
-      email,
-      options: { redirectTo },
+    const { error: updateErr } = await admin.auth.admin.updateUserById(user.id, {
+      password,
+      email_confirm: true,
     });
-    if (linkErr || !linkData?.properties?.action_link) {
-      return new Response(JSON.stringify({ error: linkErr?.message ?? 'לא הצלחנו ליצור קישור איפוס.' }), {
+    if (updateErr) {
+      return new Response(JSON.stringify({ error: updateErr.message }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
-    }
-
-    const actionLink = linkData.properties.action_link;
-    const subject = 'איפוס סיסמה במערכת BeZman';
-    const text = `שלום,\n\nלחץ על הקישור כדי לבחור סיסמה חדשה למערכת BeZman:\n\n${actionLink}\n\nאם לא ביקשת איפוס סיסמה, אפשר להתעלם מהמייל.`;
-    const html = `<p>שלום,</p><p>לחץ על הכפתור כדי לבחור סיסמה חדשה במערכת <strong>BeZman</strong>:</p><p><a href="${actionLink}" style="display:inline-block;background:#0f766e;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">איפוס סיסמה</a></p><p style="font-size:12px;color:#64748b">אם הכפתור לא עובד, העתק את הקישור:<br>${actionLink}</p>`;
-
-    try {
-      await sendMail(email, subject, text, html);
-    } catch {
-      const recover = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
-        method: 'POST',
-        headers: {
-          apikey: ANON_KEY,
-          Authorization: `Bearer ${ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, redirect_to: redirectTo }),
-      });
-      if (!recover.ok) {
-        return new Response(JSON.stringify({ error: 'לא הצלחנו לשלוח את המייל. בדוק ספאם או הגדר SMTP ב-Supabase.' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
     }
 
     return new Response(JSON.stringify({ success: true }), {
