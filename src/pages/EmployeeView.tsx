@@ -38,6 +38,7 @@ import {
   downloadMonthlyReportCsv,
 } from '@/lib/monthlyReport';
 import { Avatar, Badge, Card, SectionTitle } from '@/components/ui';
+import jsQR from 'jsqr';
 
 type Tab = 'clock' | 'request' | 'history' | 'account';
 
@@ -146,7 +147,8 @@ type FlowStage = 'idle' | 'checking-gps' | 'gps-failed' | 'out-of-area' | 'scann
 
 function ClockPanel() {
   const { profile } = useAuth();
-  const [today, setToday] = useState<Attendance | null>(null);
+  const [todayRecords, setTodayRecords] = useState<Attendance[]>([]);
+  const [openShift, setOpenShift] = useState<Attendance | null>(null);
   const [loading, setLoading] = useState(true);
   const [stage, setStage] = useState<FlowStage>('idle');
   const [locations, setLocations] = useState<AllowedLocation[]>([]);
@@ -154,10 +156,17 @@ function ClockPanel() {
   const [nearest, setNearest] = useState<AllowedLocation | null>(null);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const scanTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scanRaf = useRef<number | null>(null);
   const pendingAction = useRef<'in' | 'out' | null>(null);
   const methodRef = useRef<'qr' | 'location' | null>(null);
+  const locationsRef = useRef<AllowedLocation[]>([]);
+  const qrHandledRef = useRef(false);
+  const openShiftRef = useRef<Attendance | null>(null);
+
+  locationsRef.current = locations;
+  openShiftRef.current = openShift;
 
   async function loadToday() {
     setLoading(true);
@@ -168,9 +177,11 @@ function ClockPanel() {
       .select('*')
       .eq('user_id', profile!.id)
       .gte('created_at', startOfDay.toISOString())
-      .order('created_at', { ascending: false })
-      .maybeSingle();
-    setToday((data as Attendance) ?? null);
+      .order('created_at', { ascending: false });
+    const rows = (data as Attendance[]) ?? [];
+    const open = rows.find((r) => r.clock_in && !r.clock_out) ?? null;
+    setTodayRecords(rows);
+    setOpenShift(open);
     setLoading(false);
   }
 
@@ -192,54 +203,65 @@ function ClockPanel() {
   }, []);
 
   function stopCamera() {
-    if (scanTimer.current) {
-      clearInterval(scanTimer.current);
-      scanTimer.current = null;
+    if (scanRaf.current != null) {
+      cancelAnimationFrame(scanRaf.current);
+      scanRaf.current = null;
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
   }
 
-  // QR scanner
+  // QR scanner — jsQR works in Chrome/Safari/Firefox; BarcodeDetector is Chrome-only
   useEffect(() => {
     if (stage !== 'scanning-qr') return;
     let active = true;
+    qrHandledRef.current = false;
 
     async function start() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
         });
         if (!active) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-        const anyWindow = window as unknown as { BarcodeDetector?: unknown };
-        if (typeof anyWindow.BarcodeDetector === 'function') {
-          const BD = anyWindow.BarcodeDetector as { new (opts: unknown): { detect: (i: unknown) => Promise<{ rawValue?: string }[]> } };
-          const detector = new BD({ formats: ['qr_code'] });
-          scanTimer.current = setInterval(async () => {
-            if (!videoRef.current) return;
-            try {
-              const results = await detector.detect(videoRef.current);
-              if (results && results.length > 0 && results[0].rawValue) {
-                onQrSuccess(results[0].rawValue);
+        const video = videoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        video.muted = true;
+        await video.play();
+
+        const tick = () => {
+          if (!active || qrHandledRef.current) return;
+          const canvas = canvasRef.current;
+          if (video.readyState >= 2 && canvas && video.videoWidth > 0) {
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (ctx) {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' });
+              if (code?.data) {
+                onQrSuccess(code.data);
+                return;
               }
-            } catch {
-              /* ignore frame errors */
             }
-          }, 600);
-        }
+          }
+          scanRaf.current = requestAnimationFrame(tick);
+        };
+        scanRaf.current = requestAnimationFrame(tick);
       } catch {
         setStage('qr-unapproved');
-        setMsg({ type: 'err', text: 'לא ניתן לפתוח את המצלמה. ודא שהדפדפן מורשה להשתמש במצלמה.' });
+        setMsg({ type: 'err', text: 'לא ניתן לפתוח את המצלמה. ודא שהדפדפן מורשה להשתמש במצלמה, ושהאתר נפתח ב-HTTPS.' });
       }
     }
     start();
@@ -252,22 +274,13 @@ function ClockPanel() {
   }, [stage]);
 
   function onQrSuccess(rawValue: string) {
+    if (qrHandledRef.current) return;
+    qrHandledRef.current = true;
     stopCamera();
-    let parsed: { type?: string; id?: string; name?: string } = {};
-    try {
-      parsed = JSON.parse(rawValue);
-    } catch {
-      parsed = {};
-    }
-    if (parsed.type !== 'workplace' || !parsed.id) {
-      setStage('qr-unapproved');
-      setMsg({ type: 'err', text: 'קוד ה-QR שנסרק אינו תקין.' });
-      return;
-    }
-    const approved = locations.find((l) => l.id === parsed.id);
+    const approved = matchWorkplaceQr(rawValue, locationsRef.current);
     if (!approved) {
       setStage('qr-unapproved');
-      setMsg({ type: 'err', text: 'קוד QR אינו מאושר לעובד זה.' });
+      setMsg({ type: 'err', text: 'קוד ה-QR שנסרק אינו מאושר לעובד זה, או שאינו קוד מקום עבודה תקין.' });
       return;
     }
     setNearest(approved);
@@ -340,14 +353,14 @@ function ClockPanel() {
     methodRef.current = 'qr';
     setNearest(null);
     setGps(null);
-    const isClockOut = !!today?.clock_in && !today?.clock_out;
+    const isClockOut = !!openShiftRef.current;
     pendingAction.current = isClockOut ? 'out' : 'in';
     setStage('scanning-qr');
   }
 
   function startLocationFlowDirect() {
     if (stage !== 'idle') return;
-    const isClockOut = !!today?.clock_in && !today?.clock_out;
+    const isClockOut = !!openShiftRef.current;
     pendingAction.current = isClockOut ? 'out' : 'in';
     startLocationFlow();
   }
@@ -360,8 +373,9 @@ function ClockPanel() {
     const usedCoords = coords !== undefined ? coords : gps;
     const locationVerified = method === 'location' ? !!usedLoc : false;
     const qrVerified = method === 'qr';
+    const currentOpen = openShiftRef.current;
     if (isClockIn) {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('attendance')
         .insert({
           user_id: profile!.id,
@@ -372,35 +386,36 @@ function ClockPanel() {
           qr_verified: qrVerified,
           note: method === 'location' ? (usedLoc?.name ?? 'דיווח לפי מיקום') : 'דיווח לפי קוד QR',
           status: 'approved',
-        })
-        .select('*')
-        .maybeSingle();
+        });
       if (error) {
         setMsg({ type: 'err', text: 'הדיווח נכשל. נסה שוב.' });
         setStage('idle');
       } else {
-        setToday((data as Attendance) ?? null);
         setMsg({ type: 'ok', text: 'הכניסה נרשמה בהצלחה!' });
         setStage('idle');
+        await loadToday();
       }
     } else {
-      const { data, error } = await supabase
-        .from('attendance')
-        .update({
-          clock_out: new Date().toISOString(),
-          location_verified: locationVerified,
-          qr_verified: qrVerified,
-        })
-        .eq('id', today!.id)
-        .select('*')
-        .maybeSingle();
-      if (error) {
-        setMsg({ type: 'err', text: 'עדכון היציאה נכשל.' });
+      if (!currentOpen) {
+        setMsg({ type: 'err', text: 'אין משמרת פתוחה ליציאה.' });
         setStage('idle');
       } else {
-        setToday((data as Attendance) ?? null);
-        setMsg({ type: 'ok', text: 'היציאה נרשמה בהצלחה!' });
-        setStage('idle');
+        const { error } = await supabase
+          .from('attendance')
+          .update({
+            clock_out: new Date().toISOString(),
+            location_verified: locationVerified || currentOpen.location_verified,
+            qr_verified: qrVerified || currentOpen.qr_verified,
+          })
+          .eq('id', currentOpen.id);
+        if (error) {
+          setMsg({ type: 'err', text: 'עדכון היציאה נכשל.' });
+          setStage('idle');
+        } else {
+          setMsg({ type: 'ok', text: 'היציאה נרשמה בהצלחה! אפשר לדווח כניסה נוספת מאוחר יותר.' });
+          setStage('idle');
+          await loadToday();
+        }
       }
     }
     pendingAction.current = null;
@@ -423,9 +438,10 @@ function ClockPanel() {
     );
   }
 
-  const isClockedIn = !!today?.clock_in;
-  const isClockedOut = !!today?.clock_out;
+  const isOnShift = !!openShift;
+  const lastRecord = todayRecords[0] ?? null;
   const busy = stage === 'checking-gps' || stage === 'scanning-qr' || stage === 'submitting';
+  const dayHours = todayRecords.reduce((sum, r) => sum + parseHours(r.clock_in, r.clock_out), 0);
 
   return (
     <div className="space-y-5">
@@ -435,38 +451,40 @@ function ClockPanel() {
           <div>
             <p className="text-sm text-slate-500">היום, {formatHebrewDate(new Date())}</p>
             <p className="mt-1 text-lg font-extrabold text-slate-800">
-              {isClockedIn ? (isClockedOut ? 'סיימת את היום' : 'נוכח כעת') : 'טרם דיווחת הגעה'}
+              {isOnShift ? 'נוכח כעת' : todayRecords.length > 0 ? 'מחוץ למשמרת · אפשר לדווח שוב' : 'טרם דיווחת הגעה'}
             </p>
           </div>
           <div
             className={`flex h-16 w-16 items-center justify-center rounded-full text-white ${
-              isClockedIn ? (isClockedOut ? 'bg-slate-400' : 'bg-emerald-500 pulse-ring') : 'bg-slate-300'
+              isOnShift ? 'bg-emerald-500 pulse-ring' : todayRecords.length > 0 ? 'bg-slate-400' : 'bg-slate-300'
             }`}
           >
             <Clock className="h-8 w-8" />
           </div>
         </div>
-        {isClockedIn && !isClockedOut && (
+        {isOnShift && openShift.clock_in && (
           <div className="mt-4 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 p-4 text-center text-white shadow-md">
             <p className="text-[11px] font-medium text-emerald-50">זמן עבודה כעת</p>
             <p className="mt-1 font-mono text-3xl font-extrabold tabular-nums tracking-tight">
-              <LiveTimer startTime={today.clock_in} />
+              <LiveTimer startTime={openShift.clock_in} />
             </p>
           </div>
         )}
-        {isClockedIn && (
+        {lastRecord && (
           <div className="mt-4 grid grid-cols-3 gap-3 text-center">
             <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-[11px] text-slate-400">כניסה</p>
-              <p className="text-sm font-bold text-slate-700">{formatTime(today.clock_in)}</p>
+              <p className="text-[11px] text-slate-400">{isOnShift ? 'כניסה נוכחית' : 'כניסה אחרונה'}</p>
+              <p className="text-sm font-bold text-slate-700">{formatTime(isOnShift ? openShift.clock_in : lastRecord.clock_in)}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3">
               <p className="text-[11px] text-slate-400">יציאה</p>
-              <p className="text-sm font-bold text-slate-700">{formatTime(today.clock_out)}</p>
+              <p className="text-sm font-bold text-slate-700">
+                {formatTime(isOnShift ? openShift.clock_out : lastRecord.clock_out)}
+              </p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-[11px] text-slate-400">סה"כ</p>
-              <p className="text-sm font-bold text-slate-700">{hoursBetween(today.clock_in, today.clock_out)}</p>
+              <p className="text-[11px] text-slate-400">סה"כ היום</p>
+              <p className="text-sm font-bold text-slate-700">{dayHours.toFixed(1)} שעות</p>
             </div>
           </div>
         )}
@@ -577,12 +595,7 @@ function ClockPanel() {
       ) : null}
 
       {/* Direct action buttons */}
-      {isClockedOut ? (
-        <div className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-200 px-4 py-4 text-lg font-extrabold text-slate-500">
-          <CheckCircle2 className="h-6 w-6" />
-          סיימת את הדיווח להיום
-        </div>
-      ) : busy ? (
+      {busy ? (
         <button
           onClick={cancelFlow}
           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-200 px-4 py-4 text-lg font-extrabold text-slate-600 transition hover:bg-slate-300"
@@ -595,27 +608,27 @@ function ClockPanel() {
           <button
             onClick={startQrFlow}
             className={`flex flex-col items-center gap-2 rounded-2xl px-4 py-5 text-white shadow-lg transition ${
-              isClockedIn ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-500 hover:bg-emerald-600'
+              isOnShift ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-500 hover:bg-emerald-600'
             }`}
           >
             <QrCode className="h-8 w-8" />
-            <span className="text-sm font-extrabold">{isClockedIn ? 'יציאה ב-QR' : 'כניסה ב-QR'}</span>
+            <span className="text-sm font-extrabold">{isOnShift ? 'יציאה ב-QR' : 'כניסה ב-QR'}</span>
             <span className="text-[11px] opacity-80">סרוק קוד</span>
           </button>
           <button
             onClick={startLocationFlowDirect}
             disabled={locations.length === 0}
             className={`flex flex-col items-center gap-2 rounded-2xl px-4 py-5 text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-50 ${
-              isClockedIn ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-500 hover:bg-emerald-600'
+              isOnShift ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-500 hover:bg-emerald-600'
             }`}
           >
             <MapPin className="h-8 w-8" />
-            <span className="text-sm font-extrabold">{isClockedIn ? 'יציאה במיקום' : 'כניסה במיקום'}</span>
+            <span className="text-sm font-extrabold">{isOnShift ? 'יציאה במיקום' : 'כניסה במיקום'}</span>
             <span className="text-[11px] opacity-80">אימות GPS</span>
           </button>
         </div>
       )}
-      {locations.length === 0 && !isClockedOut && !busy && (
+      {locations.length === 0 && !busy && (
         <div className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
           <AlertTriangle className="h-4 w-4" />
           אין מקומות מותרים מוגדרים עבורך. פנה למנהל.
@@ -633,6 +646,28 @@ function ClockPanel() {
         </div>
       )}
 
+      {todayRecords.length > 0 && (
+        <Card>
+          <SectionTitle title="דיווחים היום" icon={<History className="h-5 w-5" />} />
+          <div className="divide-y divide-slate-100">
+            {[...todayRecords].reverse().map((a, i) => (
+              <div key={a.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                <div>
+                  <p className="text-sm font-bold text-slate-700">משמרת {i + 1}</p>
+                  <p className="text-xs text-slate-400">
+                    {formatTime(a.clock_in)} — {formatTime(a.clock_out)} ·{' '}
+                    {a.clock_out ? hoursBetween(a.clock_in, a.clock_out) : 'פתוחה'}
+                  </p>
+                </div>
+                <Badge color={!a.clock_out ? 'green' : a.status === 'approved' ? 'green' : 'amber'}>
+                  {!a.clock_out ? 'פעילה' : a.status === 'approved' ? 'הושלמה' : 'ממתין'}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* QR Scanner modal */}
       {stage === 'scanning-qr' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-fade-in">
@@ -644,7 +679,8 @@ function ClockPanel() {
               </button>
             </div>
             <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-slate-900">
-              <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+              <video ref={videoRef} className="h-full w-full object-cover" playsInline muted autoPlay />
+              <canvas ref={canvasRef} className="hidden" />
               <div className="pointer-events-none absolute inset-0">
                 <div className="absolute inset-8 rounded-2xl border-2 border-accent-400/80" />
                 <div className="scan-beam absolute inset-x-8 h-0.5 bg-accent-400 shadow-[0_0_12px_2px_rgba(249,115,22,0.7)]" />
@@ -1122,6 +1158,23 @@ function AccountPanel() {
 }
 
 /* ---------------- helpers ---------------- */
+function matchWorkplaceQr(rawValue: string, locations: AllowedLocation[]): AllowedLocation | null {
+  const raw = rawValue.trim();
+  let parsed: { type?: string; id?: string; name?: string } = {};
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = {};
+  }
+  if (parsed.id) {
+    const byId = locations.find((l) => l.id === parsed.id);
+    if (byId && (!parsed.type || parsed.type === 'workplace')) return byId;
+  }
+  const byExactId = locations.find((l) => l.id === raw);
+  if (byExactId) return byExactId;
+  return locations.find((l) => raw.includes(l.id)) ?? null;
+}
+
 function haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
   const toRad = (d: number) => (d * Math.PI) / 180;

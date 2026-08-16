@@ -92,14 +92,39 @@ export function RequestsTable({
   async function deleteRequest(id: string) {
     if (!confirm('האם למחוק את הבקשה?')) return;
     setPendingId(id);
-    const { error } = await supabase.from('requests').delete().eq('id', id);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-request`;
+    const res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ''}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ id }),
+    });
+    let result: { error?: string } = {};
+    try {
+      result = await res.json();
+    } catch {
+      result = {};
+    }
+
+    if (!res.ok) {
+      const { data, error } = await supabase.from('requests').delete().eq('id', id).select('id');
+      setPendingId(null);
+      onReload();
+      if (error || !data || data.length === 0) {
+        flashToast('err', result.error || 'אין הרשאה למחיקת הבקשה');
+      } else {
+        flashToast('ok', 'הבקשה נמחקה');
+      }
+      return;
+    }
+
     setPendingId(null);
     onReload();
-    if (error) {
-      flashToast('err', 'שגיאה במחיקת הבקשה');
-    } else {
-      flashToast('ok', 'הבקשה נמחקה');
-    }
+    flashToast('ok', 'הבקשה נמחקה');
   }
 
   return (
@@ -165,26 +190,22 @@ export function RequestsTable({
                     </Badge>
                   </td>
                   <td className="px-4 py-2.5">
-                    {r.status === 'pending' ? (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => updateStatus(r.id, 'approved')}
-                          disabled={pendingId === r.id}
-                          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:opacity-40"
-                        >
-                          אשר
-                        </button>
-                        <button
-                          onClick={() => updateStatus(r.id, 'rejected')}
-                          disabled={pendingId === r.id}
-                          className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-rose-700 disabled:opacity-40"
-                        >
-                          דחה
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-slate-300">—</span>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => updateStatus(r.id, 'approved')}
+                        disabled={pendingId === r.id}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:opacity-40"
+                      >
+                        אשר
+                      </button>
+                      <button
+                        onClick={() => updateStatus(r.id, 'rejected')}
+                        disabled={pendingId === r.id}
+                        className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-rose-700 disabled:opacity-40"
+                      >
+                        דחה
+                      </button>
+                    </div>
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="relative" ref={menuOpenId === r.id ? menuRef : undefined}>
