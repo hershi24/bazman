@@ -48,7 +48,7 @@ async function saveProfile(id: string, payload: CreateStaffPayload) {
     id,
     role,
     full_name: payload.full_name.trim(),
-    employee_number: role === 'manager' ? null : payload.employee_number || null,
+    employee_number: role === 'manager' ? payload.email.trim().toLowerCase() : payload.employee_number || null,
     department_id: role === 'manager' ? null : payload.department_id || null,
     phone: payload.phone || null,
     status: 'active' as const,

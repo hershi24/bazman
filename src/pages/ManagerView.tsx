@@ -7,7 +7,7 @@ import { useManagerData } from '@/lib/useManagerData';
 import { supabase } from '@/lib/supabase';
 import { updateUserAuth } from '@/lib/updateAuth';
 import { createStaffUser } from '@/lib/createStaffUser';
-import { loadManagerEmails, loadManagerPasswords, saveManagerLoginEmail, saveManagerLoginPassword } from '@/lib/managerPasswords';
+import { loadManagerEmails, loadManagerEmailsFromServer, loadManagerPasswords, rememberManagerEmail, saveManagerLoginEmail, saveManagerLoginPassword } from '@/lib/managerPasswords';
 import { DEVELOPER_EMAIL, DEVELOPER_USER_ID, isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
@@ -2130,17 +2130,26 @@ function AddManagerForm({
       const next = { ...storedEmail };
       for (const m of profiles) {
         if (m.login_email) next[m.id] = m.login_email;
+        else if (m.employee_number?.includes('@')) next[m.id] = m.employee_number;
       }
       if (session?.user?.id && session.user.email) {
         next[session.user.id] = session.user.email;
       }
       return { ...next, ...prev };
     });
+    void loadManagerEmailsFromServer().then((fromServer) => {
+      if (!Object.keys(fromServer).length) return;
+      setEmails((prev) => ({ ...prev, ...fromServer }));
+      for (const [id, email] of Object.entries(fromServer)) {
+        rememberManagerEmail(id, email);
+        void supabase.from('profiles').update({ employee_number: email }).eq('id', id).eq('role', 'manager');
+      }
+    });
   }, [profiles, session?.user?.email, session?.user?.id]);
 
   function emailOf(m: Profile) {
     if (session?.user?.id === m.id && session.user.email) return session.user.email;
-    return emails[m.id] || m.login_email || '';
+    return emails[m.id] || m.login_email || (m.employee_number?.includes('@') ? m.employee_number : '') || '';
   }
 
   function passwordOf(id: string, fallback?: string | null) {

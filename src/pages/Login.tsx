@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Clock, LogIn, Loader2, Fingerprint, MapPin, QrCode, Mail, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { emailAccountPassword } from '@/lib/updateAuth';
+import { supabase } from '@/lib/supabase';
+import { isDeveloperEmail } from '@/lib/developerAccount';
 
 export default function Login() {
   const { signIn } = useAuth();
@@ -21,6 +22,9 @@ export default function Login() {
     const query = new URLSearchParams(window.location.search);
     const type = hash.get('type') || query.get('type');
     const errCode = hash.get('error_code') || query.get('error_code');
+    if (type === 'recovery') {
+      return;
+    }
     if (type === 'email_change') {
       setInfo('האימייל אושר. אפשר להתחבר עם הכתובת החדשה.');
     } else if (errCode === 'otp_expired' || hash.get('error') === 'access_denied') {
@@ -43,18 +47,28 @@ export default function Login() {
   async function sendReset(e: FormEvent) {
     e.preventDefault();
     setResetMsg(null);
-    if (!resetEmail.trim()) {
+    const addr = resetEmail.trim().toLowerCase();
+    if (!addr || !addr.includes('@')) {
       setResetMsg({ type: 'err', text: 'נא להזין כתובת אימייל.' });
       return;
     }
+    if (isDeveloperEmail(addr)) {
+      setResetMsg({ type: 'ok', text: 'אם החשבון קיים, נשלח קישור לאימייל.' });
+      return;
+    }
     setResetBusy(true);
-    const { error } = await emailAccountPassword(resetEmail.trim());
+    const { error } = await supabase.auth.resetPasswordForEmail(addr, {
+      redirectTo: window.location.origin,
+    });
     setResetBusy(false);
     if (error) {
-      setResetMsg({ type: 'err', text: error });
-    } else {
-      setResetMsg({ type: 'ok', text: 'סיסמה חדשה נשלחה לאימייל שלך. בדוק את תיבת הדואר והתחבר איתה.' });
+      setResetMsg({ type: 'err', text: error.message });
+      return;
     }
+    setResetMsg({
+      type: 'ok',
+      text: 'שלחנו קישור לאיפוס הסיסמה לאימייל. לחץ על הקישור בתוך המייל ובחר סיסמה חדשה.',
+    });
   }
 
   return (
@@ -175,7 +189,7 @@ export default function Login() {
           ) : (
             <>
               <h2 className="text-2xl font-extrabold text-slate-800">איפוס סיסמה</h2>
-              <p className="mt-1 text-sm text-slate-500">נשלח לאימייל שלך את הסיסמה החדשה של החשבון</p>
+              <p className="mt-1 text-sm text-slate-500">נשלח לאימייל שלך קישור לבחירת סיסמה חדשה</p>
 
               <form onSubmit={sendReset} noValidate className="mt-6 space-y-4">
                 <div>
@@ -212,7 +226,7 @@ export default function Login() {
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white shadow-lg transition hover:bg-brand-700 disabled:opacity-60"
                 >
                   {resetBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mail className="h-5 w-5" />}
-                  {resetBusy ? 'שולח...' : 'שלח סיסמה לאימייל'}
+                  {resetBusy ? 'שולח...' : 'שלח קישור לאימייל'}
                 </button>
               </form>
 

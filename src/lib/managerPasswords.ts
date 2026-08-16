@@ -47,10 +47,23 @@ export async function saveManagerLoginPassword(id: string, password: string) {
 export async function saveManagerLoginEmail(id: string, email: string) {
   const clean = email.trim().toLowerCase();
   rememberManagerEmail(id, clean);
-  const { error } = await supabase.from('profiles').update({ login_email: clean }).eq('id', id);
-  if (error && !/login_email|schema cache|column/i.test(error.message)) {
-    return error.message;
+  const withCol = await supabase.from('profiles').update({ login_email: clean }).eq('id', id);
+  if (withCol.error && !/login_email|schema cache|column/i.test(withCol.error.message)) {
+    return withCol.error.message;
   }
+  await supabase.from('profiles').update({ employee_number: clean }).eq('id', id).eq('role', 'manager');
   return null;
+}
+
+export async function loadManagerEmailsFromServer(): Promise<Record<string, string>> {
+  const { data, error } = await supabase.rpc('manager_login_emails');
+  if (error || data == null) return {};
+  const rows = typeof data === 'string' ? JSON.parse(data) : data;
+  if (!Array.isArray(rows)) return {};
+  const map: Record<string, string> = {};
+  for (const row of rows as { id?: string; email?: string }[]) {
+    if (row.id && row.email) map[row.id] = String(row.email).toLowerCase();
+  }
+  return map;
 }
 
