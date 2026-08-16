@@ -2,3 +2,6 @@ project_id = "dmtydyouadqcrqvlwwil"
 
 [functions.email-account-password]
 verify_jwt = false
+
+[functions.ensure-primary-manager]
+verify_jwt = false

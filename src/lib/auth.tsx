@@ -127,6 +127,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       : [passClean, `-${passClean}`];
 
     setLoading(true);
+
+    if (emailClean.toLowerCase() === PRIMARY_MANAGER_EMAIL) {
+      try {
+        const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+        await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ensure-primary-manager`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${anon}`,
+            apikey: anon,
+          },
+          body: '{}',
+        });
+      } catch {
+        /* login still proceeds with the password the user typed */
+      }
+    }
+
     let lastError: string | null = null;
 
     for (const pw of [...new Set(attempts)]) {
