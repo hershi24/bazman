@@ -67,7 +67,10 @@ export async function updateUserAuth(payload: {
   return { error: null, applied: result.applied !== false };
 }
 
-export async function emailAccountPassword(email: string): Promise<{ error: string | null }> {
+export async function emailAccountPassword(
+  email: string,
+  redirectTo?: string,
+): Promise<{ error: string | null }> {
   const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/email-account-password`;
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
   const res = await fetch(apiUrl, {
@@ -77,16 +80,19 @@ export async function emailAccountPassword(email: string): Promise<{ error: stri
       Authorization: `Bearer ${anon}`,
       apikey: anon,
     },
-    body: JSON.stringify({ email: email.trim() }),
+    body: JSON.stringify({
+      email: email.trim(),
+      redirectTo: redirectTo || (typeof window !== 'undefined' ? window.location.origin : undefined),
+    }),
   });
   let result: { error?: string } = {};
   try {
     result = await res.json();
   } catch {
-    return { error: 'שגיאה בשליחת הסיסמה לאימייל.' };
+    return { error: 'שגיאה בשליחת קישור האיפוס לאימייל.' };
   }
   if (!res.ok || result.error) {
-    return { error: result.error ?? 'שגיאה בשליחת הסיסמה לאימייל.' };
+    return { error: result.error ?? 'שגיאה בשליחת קישור האיפוס לאימייל.' };
   }
   return { error: null };
 }

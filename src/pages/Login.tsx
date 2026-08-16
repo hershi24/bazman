@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Clock, LogIn, Loader2, Fingerprint, MapPin, QrCode, Mail, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
+import { emailAccountPassword } from '@/lib/updateAuth';
 import { isDeveloperEmail } from '@/lib/developerAccount';
 
 export default function Login() {
@@ -57,17 +58,26 @@ export default function Login() {
       return;
     }
     setResetBusy(true);
+    const viaFn = await emailAccountPassword(addr, window.location.origin);
+    if (!viaFn.error) {
+      setResetBusy(false);
+      setResetMsg({
+        type: 'ok',
+        text: 'אם החשבון קיים, נשלח מייל. בדוק גם בספאם. אם אין מייל, צריך להפעיל SMTP ב-Supabase (Authentication → Emails).',
+      });
+      return;
+    }
     const { error } = await supabase.auth.resetPasswordForEmail(addr, {
       redirectTo: window.location.origin,
     });
     setResetBusy(false);
     if (error) {
-      setResetMsg({ type: 'err', text: error.message });
+      setResetMsg({ type: 'err', text: viaFn.error || error.message });
       return;
     }
     setResetMsg({
       type: 'ok',
-      text: 'שלחנו קישור לאיפוס הסיסמה לאימייל. לחץ על הקישור בתוך המייל ובחר סיסמה חדשה.',
+      text: 'אם החשבון קיים, נשלח מייל. בדוק גם בספאם. אם אין מייל, צריך להפעיל SMTP ב-Supabase (Authentication → Emails).',
     });
   }
 
