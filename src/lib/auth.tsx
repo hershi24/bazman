@@ -155,6 +155,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!error && data.user) {
         setSession(data.session);
         await loadProfile(data.user.id, data.user);
+        const { data: statusRow } = await supabase
+          .from('profiles')
+          .select('status')
+          .eq('id', data.user.id)
+          .maybeSingle();
+        if (statusRow?.status === 'deleted') {
+          await supabase.auth.signOut();
+          setSession(null);
+          setProfile(null);
+          setLoading(false);
+          return { error: 'החשבון נמחק' };
+        }
         setLoading(false);
         return { error: null };
       }

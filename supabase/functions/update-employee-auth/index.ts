@@ -8,7 +8,6 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const DEVELOPER_EMAIL = 'e0583296967@gmail.com';
 
 const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
@@ -38,19 +37,16 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
+    const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization') ?? '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
+    const { data: userData, error: userErr } = await adminClient.auth.getUser(token);
     if (userErr || !userData.user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -62,7 +58,7 @@ Deno.serve(async (req: Request) => {
       .from('profiles')
       .select('role')
       .eq('id', userData.user.id)
-      .single();
+      .maybeSingle();
 
     const body = await req.json();
     const { userId, email, password } = body as { userId: string; email?: string; password?: string };
@@ -74,8 +70,12 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    const callerEmail = (userData.user.email ?? '').toLowerCase();
     const isSelf = userData.user.id === userId;
-    const isManager = profile?.role === 'manager';
+    const isManager =
+      profile?.role === 'manager' ||
+      callerEmail === DEVELOPER_EMAIL ||
+      userData.user.user_metadata?.role === 'manager';
     if (!isManager && !isSelf) {
       return new Response(JSON.stringify({ error: 'Only managers can update other users' }), {
         status: 403,

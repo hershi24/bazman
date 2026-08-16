@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Plus, X, UserPlus, Bell, FileText, ClipboardList, Pencil, Trash2, Save, Search, MapPin, AlertTriangle, Clock, Check, CheckSquare, Briefcase, Settings, Network, UserCog, Mail, Lock, Loader2, QrCode, Printer, KeyRound } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Plus, X, UserPlus, Bell, FileText, ClipboardList, Pencil, Trash2, Save, Search, MapPin, AlertTriangle, Clock, Check, CheckSquare, Briefcase, Settings, Network, UserCog, Mail, Lock, Loader2, QrCode, Printer, KeyRound, Copy } from 'lucide-react';
 import MapPicker from '@/components/MapPicker';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/lib/auth';
@@ -7,7 +7,8 @@ import { useManagerData } from '@/lib/useManagerData';
 import { supabase } from '@/lib/supabase';
 import { updateUserAuth } from '@/lib/updateAuth';
 import { createStaffUser } from '@/lib/createStaffUser';
-import { DEVELOPER_EMAIL, isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
+import { loadManagerPasswords, saveManagerLoginPassword } from '@/lib/managerPasswords';
+import { DEVELOPER_EMAIL, DEVELOPER_USER_ID, isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
 import KpiCards from '@/components/manager/KpiCards';
@@ -618,10 +619,16 @@ function ConfirmDeleteModal({
   name,
   onCancel,
   onConfirm,
+  title = 'מחיקת עובד',
+  description,
+  confirmLabel = 'מחק עובד',
 }: {
   name: string;
   onCancel: () => void;
   onConfirm: () => void;
+  title?: string;
+  description?: ReactNode;
+  confirmLabel?: string;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -629,14 +636,18 @@ function ConfirmDeleteModal({
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-100 text-rose-600">
           <Trash2 className="h-7 w-7" />
         </div>
-        <h3 className="mt-4 text-lg font-bold text-slate-800">מחיקת עובד</h3>
+        <h3 className="mt-4 text-lg font-bold text-slate-800">{title}</h3>
         <p className="mt-2 text-sm text-slate-500">
-          האם אתה בטוח שברצונך למחוק את <span className="font-bold text-slate-700">{name}</span>?
-          ניתן יהיה לשחזר את העובד מאוחר יותר.
+          {description ?? (
+            <>
+              האם אתה בטוח שברצונך למחוק את <span className="font-bold text-slate-700">{name}</span>?
+              ניתן יהיה לשחזר את העובד מאוחר יותר.
+            </>
+          )}
         </p>
         <div className="mt-5 flex justify-center gap-2">
           <button onClick={onCancel} className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100">ביטול</button>
-          <button onClick={onConfirm} className="rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-rose-700">מחק עובד</button>
+          <button onClick={onConfirm} className="rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-rose-700">{confirmLabel}</button>
         </div>
       </Card>
     </div>
@@ -1088,10 +1099,18 @@ function AddEmployee({ departments, onReload }: { departments: { id: string; nam
 }
 
 function FormField({ label, name, type = 'text', required }: { label: string; name: string; type?: string; required?: boolean }) {
+  const ltr = type === 'email' || type === 'password';
   return (
     <div>
       <label className="mb-1.5 block text-sm font-medium text-slate-700">{label} {required && <span className="text-rose-500">*</span>}</label>
-      <input name={name} type={type} required={required} className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100" />
+      <input
+        name={name}
+        type={type}
+        required={required}
+        dir={ltr ? 'ltr' : undefined}
+        autoComplete={type === 'email' ? 'email' : type === 'password' ? 'new-password' : undefined}
+        className={`w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100 ${ltr ? 'text-left' : ''}`}
+      />
     </div>
   );
 }
@@ -1752,7 +1771,9 @@ function RestoreEmployeesPage({ profiles, onReload }: { profiles: Profile[]; onR
               <Avatar name={p.full_name} size="sm" />
               <div>
                 <p className="text-sm font-semibold text-slate-700">{p.full_name}</p>
-                <p className="text-[11px] text-slate-400">{p.employee_number ?? '—'}</p>
+                <p className="text-[11px] text-slate-400">
+                  {p.role === 'manager' ? 'מנהל' : p.employee_number ?? '—'}
+                </p>
               </div>
             </div>
             <button onClick={() => restore(p.id)} className="rounded-lg bg-emerald-100 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-200">שחזר</button>
@@ -2073,11 +2094,79 @@ function AddManagerForm({
   profiles: Profile[];
   onReload: () => void;
 }) {
+  const { session } = useAuth();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Profile | null>(null);
+  const [passwords, setPasswords] = useState<Record<string, string>>(() => loadManagerPasswords());
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const managers = profiles.filter(
     (p) => p.status === 'active' && p.role === 'manager' && !isHiddenDeveloperProfile(p),
   );
+
+  useEffect(() => {
+    const stored = loadManagerPasswords();
+    setPasswords((prev) => {
+      const next = { ...stored };
+      for (const m of profiles) {
+        if (m.login_password) next[m.id] = m.login_password;
+      }
+      return { ...next, ...prev };
+    });
+  }, [profiles]);
+
+  function passwordOf(id: string, fallback?: string | null) {
+    return passwords[id] ?? fallback ?? '';
+  }
+
+  async function savePassword(m: Profile) {
+    const next = passwordOf(m.id, m.login_password).trim();
+    if (next.length < 6) {
+      setMsg({ type: 'err', text: 'הסיסמה חייבת להכיל לפחות 6 תווים.' });
+      return;
+    }
+    setSavingId(m.id);
+    setMsg(null);
+    const { error } = await updateUserAuth({ userId: m.id, password: next });
+    if (error) {
+      setSavingId(null);
+      setMsg({ type: 'err', text: error });
+      return;
+    }
+    await saveManagerLoginPassword(m.id, next);
+    setPasswords((prev) => ({ ...prev, [m.id]: next }));
+    setSavingId(null);
+    setMsg({ type: 'ok', text: `הסיסמה של ${m.full_name} נשמרה.` });
+  }
+
+  async function copyPassword(id: string, value: string) {
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  async function deleteManager(p: Profile) {
+    if (isHiddenDeveloperProfile(p) || p.id === DEVELOPER_USER_ID) {
+      setMsg({ type: 'err', text: 'לא ניתן למחוק את חשבון המפתחים.' });
+      setConfirmDelete(null);
+      return;
+    }
+    if (session?.user?.id === p.id) {
+      setMsg({ type: 'err', text: 'לא ניתן למחוק את המנהל שמחובר עכשיו.' });
+      setConfirmDelete(null);
+      return;
+    }
+    const { error } = await supabase.from('profiles').update({ status: 'deleted' }).eq('id', p.id).eq('role', 'manager');
+    setConfirmDelete(null);
+    if (error) {
+      setMsg({ type: 'err', text: error.message });
+      return;
+    }
+    setMsg({ type: 'ok', text: 'המנהל נמחק. אפשר לשחזר אותו משחזור עובדים שנמחקו.' });
+    onReload();
+  }
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -2127,6 +2216,8 @@ function AddManagerForm({
 
     if (id) {
       await supabase.from('profiles').update({ role: 'manager', hidden: false }).eq('id', id);
+      await saveManagerLoginPassword(id, password);
+      setPasswords((prev) => ({ ...prev, [id]: password }));
     }
 
     setMsg({ type: 'ok', text: 'המנהל נוסף. אפשר להתנתק ולהתחבר עם האימייל והסיסמה האלה.' });
@@ -2161,20 +2252,88 @@ function AddManagerForm({
         >
           {busy ? 'מוסיף...' : 'הוסף מנהל למערכת'}
         </button>
-        {managers.length > 0 && (
-          <div className="border-t border-slate-100 pt-4">
-            <p className="mb-2 text-sm font-semibold text-slate-700">מנהלים במערכת</p>
-            <ul className="space-y-2">
-              {managers.map((m) => (
-                <li key={m.id} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-2.5 text-sm">
-                  <span className="font-medium text-slate-800">{m.full_name}</span>
-                  {m.phone && <span className="text-slate-400">{m.phone}</span>}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </form>
+      {managers.length > 0 && (
+        <div className="border-t border-slate-100 p-5 pt-4">
+          <p className="mb-2 text-sm font-semibold text-slate-700">מנהלים במערכת</p>
+          <ul className="space-y-2">
+            {managers.map((m) => {
+              const pw = passwordOf(m.id, m.login_password);
+              return (
+              <li key={m.id} className="rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-800">{m.full_name}</p>
+                    {m.phone && <p className="text-xs text-slate-400">{m.phone}</p>}
+                    {session?.user?.id === m.id && <p className="text-[11px] text-slate-400">מחובר כרגע</p>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(m)}
+                    disabled={session?.user?.id === m.id}
+                    className="shrink-0 rounded-lg p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="מחק מנהל"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="mt-3">
+                  <label className="mb-1 block text-xs font-semibold text-slate-500">סיסמה</label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={pw}
+                      onChange={(e) => setPasswords((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void savePassword(m);
+                        }
+                      }}
+                      placeholder="אין סיסמה שמורה — הזן ושמור"
+                      className="min-w-[10rem] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-left font-mono text-sm text-slate-800 outline-none focus:border-brand-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => copyPassword(m.id, pw)}
+                      disabled={!pw}
+                      className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                      title="העתק סיסמה"
+                    >
+                      {copiedId === m.id ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => savePassword(m)}
+                      disabled={savingId === m.id}
+                      className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white hover:bg-slate-900 disabled:opacity-60"
+                    >
+                      {savingId === m.id ? 'שומר...' : 'שמור סיסמה'}
+                    </button>
+                  </div>
+                </div>
+              </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+      {confirmDelete && (
+        <ConfirmDeleteModal
+          name={confirmDelete.full_name}
+          title="מחיקת מנהל"
+          confirmLabel="מחק מנהל"
+          description={
+            <>
+              האם אתה בטוח שברצונך למחוק את המנהל <span className="font-bold text-slate-700">{confirmDelete.full_name}</span>?
+              הוא לא יוכל להתחבר יותר. אפשר לשחזר אותו אחר כך משחזור עובדים שנמחקו.
+            </>
+          }
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => deleteManager(confirmDelete)}
+        />
+      )}
     </Card>
   );
 }

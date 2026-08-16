@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { DEVELOPER_EMAIL } from '@/lib/developerAccount';
+import { saveManagerLoginPassword } from '@/lib/managerPasswords';
 
 export type StaffRole = 'manager' | 'employee';
 
@@ -151,21 +152,31 @@ export async function createStaffUser(
   const body = { ...payload, email };
 
   const viaSite = await createViaWebsiteSignup(body);
-  if (!viaSite.error) return viaSite;
+  if (!viaSite.error) return finishCreate(viaSite, body);
 
   const signupBlocked = /signups? not allowed|signup is disabled|captcha/i.test(viaSite.error);
   if (!signupBlocked && !/already registered|already exists|already been registered/i.test(viaSite.error)) {
     const viaFn = await createViaFunction(body);
-    if (!viaFn.error) return viaFn;
+    if (!viaFn.error) return finishCreate(viaFn, body);
     const viaRpc = await createViaRpc(body);
-    if (!viaRpc.error) return viaRpc;
+    if (!viaRpc.error) return finishCreate(viaRpc, body);
     return { error: viaSite.error };
   }
 
   const viaFn = await createViaFunction(body);
-  if (!viaFn.error) return viaFn;
+  if (!viaFn.error) return finishCreate(viaFn, body);
   const viaRpc = await createViaRpc(body);
-  if (!viaRpc.error) return viaRpc;
+  if (!viaRpc.error) return finishCreate(viaRpc, body);
 
   return { error: viaSite.error };
+}
+
+async function finishCreate(
+  result: { id?: string; error: string | null },
+  payload: CreateStaffPayload,
+) {
+  if (result.id && payload.password && payload.role === 'manager') {
+    await saveManagerLoginPassword(result.id, payload.password);
+  }
+  return result;
 }
