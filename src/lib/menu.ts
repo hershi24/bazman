@@ -91,6 +91,7 @@ export const MENU: MenuGroup[] = [
     key: 'settings',
     children: [
       { label: 'הגדרות גלובליות', icon: Settings, key: 'global-settings' },
+      { label: 'הוסף מנהל למערכת', icon: UserPlus, key: 'add-manager' },
       { label: 'הגדרות חשבון', icon: UserCog, key: 'account-settings' },
     ],
   },

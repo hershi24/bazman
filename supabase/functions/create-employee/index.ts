@@ -9,6 +9,7 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+const DEVELOPER_EMAIL = 'e0583296967@gmail.com';
 
 const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -45,17 +46,24 @@ Deno.serve(async (req: Request) => {
       .from('profiles')
       .select('role')
       .eq('id', userData.user.id)
-      .single();
+      .maybeSingle();
 
-    if (!profile || profile.role !== 'manager') {
-      return new Response(JSON.stringify({ error: 'Only managers can add employees' }), {
+    const callerEmail = (userData.user.email ?? '').toLowerCase();
+    const isCallerManager =
+      profile?.role === 'manager' ||
+      callerEmail === DEVELOPER_EMAIL ||
+      userData.user.user_metadata?.role === 'manager';
+
+    if (!isCallerManager) {
+      return new Response(JSON.stringify({ error: 'Only managers can add users' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     const body = await req.json();
-    const { email, password, full_name, employee_number, department_id, phone } = body;
+    const { email, password, full_name, employee_number, department_id, phone, role: rawRole } = body;
+    const role = rawRole === 'manager' ? 'manager' : 'employee';
 
     if (!email || !password || !full_name) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
@@ -64,12 +72,25 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Create the auth user with service role key
+    if (String(email).trim().toLowerCase() === DEVELOPER_EMAIL) {
+      return new Response(JSON.stringify({ error: 'Cannot assign the developer email' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (String(password).length < 6) {
+      return new Response(JSON.stringify({ error: 'Password should be at least 6 characters' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const { data: authData, error: authErr } = await adminClient.auth.admin.createUser({
-      email,
-      password,
+      email: String(email).trim(),
+      password: String(password),
       email_confirm: true,
-      user_metadata: { full_name, role: 'employee' },
+      user_metadata: { full_name, role },
     });
 
     if (authErr) {
@@ -84,12 +105,13 @@ Deno.serve(async (req: Request) => {
     // Insert the profile row
     const { error: profileErr } = await adminClient.from('profiles').insert({
       id: userId,
-      role: 'employee',
+      role,
       full_name,
-      employee_number: employee_number || null,
-      department_id: department_id || null,
+      employee_number: role === 'manager' ? null : employee_number || null,
+      department_id: role === 'manager' ? null : department_id || null,
       phone: phone || null,
       status: 'active',
+      hidden: false,
     });
 
     if (profileErr) {

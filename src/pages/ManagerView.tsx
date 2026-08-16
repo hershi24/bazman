@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { useManagerData } from '@/lib/useManagerData';
 import { supabase } from '@/lib/supabase';
 import { updateUserAuth } from '@/lib/updateAuth';
-import { isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
+import { DEVELOPER_EMAIL, isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
 import KpiCards from '@/components/manager/KpiCards';
@@ -138,8 +138,9 @@ function GenericPage({
     'late-report': <LateReportPage attendance={data.attendance} profiles={data.profiles} />,
     'daily-detail': <DailyDetailPage attendance={data.attendance} />,
     'sign-reports': <SignReportsPage attendance={data.attendance} onReload={data.reload} />,
-    'global-settings': <GlobalSettingsPage />,
-    'account-settings': <AccountSettingsPage />,
+    'global-settings': <GlobalSettingsPage profiles={data.profiles} onReload={data.reload} />,
+    'add-manager': <AddManagerForm profiles={data.profiles} onReload={data.reload} />,
+    'account-settings': <AccountSettingsPage profiles={data.profiles} onReload={data.reload} />,
   };
 
   return (
@@ -185,6 +186,7 @@ function EmployeeList({
   const employees = profiles.filter(
     (p) =>
       p.status === 'active' &&
+      p.role === 'employee' &&
       !isHiddenDeveloperProfile(p) &&
       (p.full_name.includes(search) || (p.employee_number ?? '').includes(search)),
   );
@@ -2073,7 +2075,137 @@ function loadSettings(): AppSettings {
   }
 }
 
-function GlobalSettingsPage() {
+function AddManagerForm({
+  profiles,
+  onReload,
+}: {
+  profiles: Profile[];
+  onReload: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const managers = profiles.filter(
+    (p) => p.status === 'active' && p.role === 'manager' && !isHiddenDeveloperProfile(p),
+  );
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    const fullName = String(data.get('full_name') ?? '').trim();
+    const email = String(data.get('email') ?? '').trim();
+    const password = String(data.get('password') ?? '');
+    const confirm = String(data.get('confirm_password') ?? '');
+    const phone = String(data.get('phone') ?? '').trim();
+
+    if (!fullName || !email || !password) {
+      setMsg({ type: 'err', text: 'נא למלא שם, אימייל וסיסמה.' });
+      setBusy(false);
+      return;
+    }
+    if (email.toLowerCase() === DEVELOPER_EMAIL) {
+      setMsg({ type: 'err', text: 'לא ניתן להשתמש באימייל של חשבון המפתחים.' });
+      setBusy(false);
+      return;
+    }
+    if (password.length < 6) {
+      setMsg({ type: 'err', text: 'הסיסמה חייבת להכיל לפחות 6 תווים.' });
+      setBusy(false);
+      return;
+    }
+    if (password !== confirm) {
+      setMsg({ type: 'err', text: 'הסיסמאות אינן תואמות.' });
+      setBusy(false);
+      return;
+    }
+
+    const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-employee`;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionData.session?.access_token ?? ''}`,
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        full_name: fullName,
+        phone: phone || null,
+        role: 'manager',
+      }),
+    });
+    const result = await res.json().catch(() => ({ error: 'שגיאה ביצירת מנהל.' }));
+    if (!res.ok) {
+      setMsg({ type: 'err', text: result.error ?? 'שגיאה ביצירת מנהל.' });
+      setBusy(false);
+      return;
+    }
+
+    if (result.id) {
+      await supabase.from('profiles').update({ role: 'manager', hidden: false }).eq('id', result.id);
+    }
+
+    setMsg({ type: 'ok', text: 'המנהל נוסף. אפשר להתנתק ולהתחבר עם האימייל והסיסמה האלה.' });
+    setBusy(false);
+    form.reset();
+    onReload();
+  }
+
+  return (
+    <Card>
+      <SectionTitle title="הגדרות מתקדמות" icon={<UserCog className="h-5 w-5" />} />
+      <form onSubmit={submit} className="space-y-4 p-5">
+        <p className="text-sm text-slate-600">
+          הוסף מנהל רגיל למערכת. אחרי ההוספה אפשר להתחבר איתו ולנהל עובדים, דיווחים ובקשות.
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormField label="שם מלא" name="full_name" required />
+          <FormField label="אימייל" name="email" type="email" required />
+          <FormField label="סיסמה" name="password" type="password" required />
+          <FormField label="אימות סיסמה" name="confirm_password" type="password" required />
+          <FormField label="טלפון (אופציונלי)" name="phone" />
+        </div>
+        {msg && (
+          <div className={`rounded-xl px-4 py-2.5 text-sm ${msg.type === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+            {msg.text}
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-xl bg-brand-600 px-5 py-2.5 font-bold text-white transition hover:bg-brand-700 disabled:opacity-60"
+        >
+          {busy ? 'מוסיף...' : 'הוסף מנהל למערכת'}
+        </button>
+        {managers.length > 0 && (
+          <div className="border-t border-slate-100 pt-4">
+            <p className="mb-2 text-sm font-semibold text-slate-700">מנהלים במערכת</p>
+            <ul className="space-y-2">
+              {managers.map((m) => (
+                <li key={m.id} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-2.5 text-sm">
+                  <span className="font-medium text-slate-800">{m.full_name}</span>
+                  {m.phone && <span className="text-slate-400">{m.phone}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </form>
+    </Card>
+  );
+}
+
+function GlobalSettingsPage({
+  profiles,
+  onReload,
+}: {
+  profiles: Profile[];
+  onReload: () => void;
+}) {
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
   const [saved, setSaved] = useState(false);
 
@@ -2135,11 +2267,19 @@ function GlobalSettingsPage() {
           </span>
         )}
       </div>
+
+      <AddManagerForm profiles={profiles} onReload={onReload} />
     </div>
   );
 }
 
-function AccountSettingsPage() {
+function AccountSettingsPage({
+  profiles,
+  onReload,
+}: {
+  profiles: Profile[];
+  onReload: () => void;
+}) {
   const { session, profile, signOut, reloadProfile } = useAuth();
   const locked = isDeveloperSession(session?.user?.email, session?.user?.id);
   const [displayName, setDisplayName] = useState(profile?.full_name ?? '');
@@ -2238,16 +2378,20 @@ function AccountSettingsPage() {
 
   if (locked) {
     return (
-      <Card>
-        <SectionTitle title="חשבון מפתחים" icon={<UserCog className="h-5 w-5" />} />
-        <div className="space-y-3 p-5 text-sm text-slate-600">
-          <p>זהו חשבון מפתחים קבוע. הוא לא מופיע באתר, ואי אפשר לשנות את האימייל או הסיסמה שלו.</p>
-          <div className="rounded-xl border border-slate-200 px-4 py-3">
-            <span className="text-slate-500">אימייל קבוע: </span>
-            <span className="font-semibold text-slate-800">{session?.user?.email}</span>
+      <div className="space-y-6">
+        <Card>
+          <SectionTitle title="חשבון מפתחים" icon={<UserCog className="h-5 w-5" />} />
+          <div className="space-y-3 p-5 text-sm text-slate-600">
+            <p>זהו חשבון מפתחים קבוע. הוא לא מופיע באתר, ואי אפשר לשנות את האימייל או הסיסמה שלו.</p>
+            <div className="rounded-xl border border-slate-200 px-4 py-3">
+              <span className="text-slate-500">אימייל קבוע: </span>
+              <span className="font-semibold text-slate-800">{session?.user?.email}</span>
+            </div>
+            <p>כדי לעבוד כרגיל, הוסף מנהל למערכת למטה והתחבר איתו.</p>
           </div>
-        </div>
-      </Card>
+        </Card>
+        <AddManagerForm profiles={profiles} onReload={onReload} />
+      </div>
     );
   }
 
