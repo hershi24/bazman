@@ -563,11 +563,16 @@ function EditEmployeeModal({
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">אימייל חדש</label>
             <input
-              type="email"
+              type="text"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              dir="ltr"
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
               placeholder="השאר ריק כדי לא לשנות"
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-left text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
             />
           </div>
           <div>
@@ -1070,7 +1075,7 @@ function AddEmployee({ departments, onReload }: { departments: { id: string; nam
   return (
     <Card>
       <SectionTitle title="הוסף עובד חדש" icon={<UserPlus className="h-5 w-5" />} />
-      <form onSubmit={submit} className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+      <form onSubmit={submit} noValidate className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
         <FormField label="שם מלא" name="full_name" required />
         <FormField label="אימייל" name="email" type="email" required />
         <FormField label="סיסמה ראשונית" name="password" type="password" required />
@@ -1099,16 +1104,21 @@ function AddEmployee({ departments, onReload }: { departments: { id: string; nam
 }
 
 function FormField({ label, name, type = 'text', required }: { label: string; name: string; type?: string; required?: boolean }) {
-  const ltr = type === 'email' || type === 'password';
+  const isEmail = type === 'email';
+  const ltr = isEmail || type === 'password';
   return (
     <div>
       <label className="mb-1.5 block text-sm font-medium text-slate-700">{label} {required && <span className="text-rose-500">*</span>}</label>
       <input
         name={name}
-        type={type}
+        type={isEmail ? 'text' : type}
+        inputMode={isEmail ? 'email' : undefined}
+        autoCapitalize={isEmail ? 'none' : undefined}
+        autoCorrect={isEmail ? 'off' : undefined}
+        spellCheck={isEmail ? false : undefined}
         required={required}
         dir={ltr ? 'ltr' : undefined}
-        autoComplete={type === 'email' ? 'email' : type === 'password' ? 'new-password' : undefined}
+        autoComplete={isEmail ? 'email' : type === 'password' ? 'new-password' : undefined}
         className={`w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100 ${ltr ? 'text-left' : ''}`}
       />
     </div>
@@ -2229,7 +2239,7 @@ function AddManagerForm({
   return (
     <Card>
       <SectionTitle title="הגדרות מתקדמות" icon={<UserCog className="h-5 w-5" />} />
-      <form onSubmit={submit} className="space-y-4 p-5">
+      <form onSubmit={submit} noValidate className="space-y-4 p-5">
         <p className="text-sm text-slate-600">
           הוסף מנהל רגיל למערכת. אחרי ההוספה אפשר להתחבר איתו ולנהל עובדים, דיווחים ובקשות.
         </p>
@@ -2573,11 +2583,16 @@ function AccountSettingsPage({
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-slate-600">אימייל חדש</label>
             <input
-              type="email"
+              type="text"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              dir="ltr"
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
               placeholder="manager@example.com"
-              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-left text-sm outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
             />
           </div>
           {emailMsg && (

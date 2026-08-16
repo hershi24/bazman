@@ -114,16 +114,21 @@ export default function Login() {
               <h2 className="text-2xl font-extrabold text-slate-800">כניסה למערכת</h2>
               <p className="mt-1 text-sm text-slate-500">הזן את פרטי החיבור</p>
 
-              <form onSubmit={submit} className="mt-6 space-y-4">
+              <form onSubmit={submit} noValidate className="mt-6 space-y-4">
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">אימייל</label>
                   <input
-                    type="email"
+                    type="text"
+                    inputMode="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    dir="ltr"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@company.co.il"
-                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
+                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-left text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
                   />
                 </div>
                 <div>
@@ -172,16 +177,21 @@ export default function Login() {
               <h2 className="text-2xl font-extrabold text-slate-800">איפוס סיסמה</h2>
               <p className="mt-1 text-sm text-slate-500">נשלח לאימייל שלך את הסיסמה החדשה של החשבון</p>
 
-              <form onSubmit={sendReset} className="mt-6 space-y-4">
+              <form onSubmit={sendReset} noValidate className="mt-6 space-y-4">
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">אימייל</label>
                   <input
-                    type="email"
+                    type="text"
+                    inputMode="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    dir="ltr"
                     required
                     value={resetEmail}
                     onChange={(e) => setResetEmail(e.target.value)}
                     placeholder="you@company.co.il"
-                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
+                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-left text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
                   />
                 </div>
 
