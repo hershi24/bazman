@@ -14,69 +14,39 @@ export type CreateStaffPayload = {
   role?: StaffRole;
 };
 
-function functionError(result: { error?: string; message?: string; msg?: string }) {
-  return result.error || result.message || result.msg || '';
-}
-
-async function createViaFunction(payload: CreateStaffPayload): Promise<{ id?: string; error: string | null }> {
-  const { data: refreshed } = await supabase.auth.refreshSession();
-  const token = refreshed.session?.access_token;
-  if (!token) {
-    return { error: 'יש להתחבר מחדש ואז לנסות שוב.' };
-  }
-
-  const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-employee`;
-  const res = await fetch(apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const result = await res.json().catch(() => ({} as { error?: string }));
-  const err = functionError(result);
-  if (!res.ok) {
-    return { error: err || `שגיאה (${res.status})` };
-  }
-  return { id: result.id, error: null };
-}
-
-async function createViaSignUp(payload: CreateStaffPayload): Promise<{ id?: string; error: string | null }> {
+function isolatedAuthClient() {
   const url = import.meta.env.VITE_SUPABASE_URL as string;
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-  const isolated = createClient(url, anon, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  });
-
-  const role: StaffRole = payload.role === 'manager' ? 'manager' : 'employee';
-  const { data, error } = await isolated.auth.signUp({
-    email: payload.email.trim(),
-    password: payload.password,
-    options: {
-      data: { full_name: payload.full_name, role },
-      emailRedirectTo: undefined,
+  const memory = new Map<string, string>();
+  return createClient(url, anon, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storage: {
+        getItem: (key) => memory.get(key) ?? null,
+        setItem: (key, value) => {
+          memory.set(key, value);
+        },
+        removeItem: (key) => {
+          memory.delete(key);
+        },
+      },
     },
   });
+}
 
-  if (error) {
-    return { error: error.message };
-  }
+async function profileExists(id: string) {
+  const { data } = await supabase.from('profiles').select('id, role').eq('id', id).maybeSingle();
+  return data;
+}
 
-  const userId = data.user?.id;
-  if (!userId) {
-    return { error: 'לא הצלחנו ליצור את המשתמש.' };
-  }
-  if (Array.isArray(data.user?.identities) && data.user.identities.length === 0) {
-    return { error: 'האימייל כבר קיים במערכת.' };
-  }
-
+async function saveProfile(id: string, payload: CreateStaffPayload) {
+  const role: StaffRole = payload.role === 'manager' ? 'manager' : 'employee';
   const row = {
-    id: userId,
+    id,
     role,
-    full_name: payload.full_name,
+    full_name: payload.full_name.trim(),
     employee_number: role === 'manager' ? null : payload.employee_number || null,
     department_id: role === 'manager' ? null : payload.department_id || null,
     phone: payload.phone || null,
@@ -84,24 +54,89 @@ async function createViaSignUp(payload: CreateStaffPayload): Promise<{ id?: stri
     hidden: false,
   };
 
-  const inserted = await supabase.from('profiles').insert(row);
-  if (inserted.error) {
-    const updated = await supabase.from('profiles').update({
-      role,
-      full_name: payload.full_name,
-      phone: payload.phone || null,
-      hidden: false,
-      status: 'active',
-    }).eq('id', userId);
-    if (updated.error) {
-      return { id: userId, error: null };
-    }
+  let { error } = await supabase.from('profiles').upsert(row, { onConflict: 'id' });
+  if (error && /hidden/i.test(error.message)) {
+    const { hidden: _hidden, ...withoutHidden } = row;
+    error = (await supabase.from('profiles').upsert(withoutHidden, { onConflict: 'id' })).error;
+  }
+  if (error) return error.message;
+
+  const found = await profileExists(id);
+  if (!found) return 'המשתמש נוצר אבל לא נשמר בטבלת הפרופילים.';
+  if (role === 'manager' && found.role !== 'manager') {
+    const updated = await supabase.from('profiles').update({ role: 'manager' }).eq('id', id);
+    if (updated.error) return updated.error.message;
+  }
+  return null;
+}
+
+async function createViaWebsiteSignup(payload: CreateStaffPayload): Promise<{ id?: string; error: string | null }> {
+  const role: StaffRole = payload.role === 'manager' ? 'manager' : 'employee';
+  const client = isolatedAuthClient();
+  const { data, error } = await client.auth.signUp({
+    email: payload.email.trim(),
+    password: payload.password,
+    options: {
+      data: { full_name: payload.full_name.trim(), role },
+    },
+  });
+
+  if (error) return { error: error.message };
+
+  const userId = data.user?.id;
+  if (!userId) return { error: 'לא הצלחנו ליצור את המשתמש באתר.' };
+  if (Array.isArray(data.user?.identities) && data.user.identities.length === 0) {
+    return { error: 'האימייל כבר קיים במערכת.' };
   }
 
+  const profileErr = await saveProfile(userId, payload);
+  if (profileErr) return { error: profileErr };
   return { id: userId, error: null };
 }
 
-export async function createStaffUser(payload: CreateStaffPayload): Promise<{ id?: string; error: string | null }> {
+async function createViaFunction(payload: CreateStaffPayload): Promise<{ id?: string; error: string | null }> {
+  const { data: refreshed } = await supabase.auth.refreshSession();
+  const token =
+    refreshed.session?.access_token ?? (await supabase.auth.getSession()).data.session?.access_token;
+  if (!token) return { error: 'יש להתחבר מחדש ואז לנסות שוב.' };
+
+  const { data, error } = await supabase.functions.invoke('create-employee', {
+    body: payload,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (error) return { error: error.message };
+  const id = (data as { id?: string; error?: string } | null)?.id;
+  const fnError = (data as { error?: string } | null)?.error;
+  if (fnError) return { error: fnError };
+  if (!id) return { error: 'השרת לא יצר משתמש' };
+
+  const profileErr = await saveProfile(id, payload);
+  if (profileErr) return { error: profileErr };
+  return { id, error: null };
+}
+
+async function createViaRpc(payload: CreateStaffPayload): Promise<{ id?: string; error: string | null }> {
+  const role: StaffRole = payload.role === 'manager' ? 'manager' : 'employee';
+  const { data, error } = await supabase.rpc('create_staff_user', {
+    p_email: payload.email.trim(),
+    p_password: payload.password,
+    p_full_name: payload.full_name.trim(),
+    p_role: role,
+    p_phone: payload.phone || null,
+    p_employee_number: payload.employee_number || null,
+    p_department_id: payload.department_id || null,
+  });
+  if (error) return { error: error.message };
+  const id = typeof data === 'string' ? data : String(data ?? '');
+  if (!id) return { error: 'השרת לא החזיר מזהה משתמש' };
+  const found = await profileExists(id);
+  if (!found) return { error: 'המשתמש נוצר אבל הפרופיל לא נמצא.' };
+  return { id, error: null };
+}
+
+export async function createStaffUser(
+  payload: CreateStaffPayload,
+): Promise<{ id?: string; error: string | null }> {
   const email = payload.email.trim().toLowerCase();
   if (email === DEVELOPER_EMAIL) {
     return { error: 'לא ניתן להשתמש באימייל של חשבון המפתחים.' };
@@ -113,19 +148,24 @@ export async function createStaffUser(payload: CreateStaffPayload): Promise<{ id
     return { error: 'הסיסמה חייבת להכיל לפחות 6 תווים.' };
   }
 
-  const viaFn = await createViaFunction({ ...payload, email });
-  if (!viaFn.error) {
-    return viaFn;
+  const body = { ...payload, email };
+
+  const viaSite = await createViaWebsiteSignup(body);
+  if (!viaSite.error) return viaSite;
+
+  const signupBlocked = /signups? not allowed|signup is disabled|captcha/i.test(viaSite.error);
+  if (!signupBlocked && !/already registered|already exists|already been registered/i.test(viaSite.error)) {
+    const viaFn = await createViaFunction(body);
+    if (!viaFn.error) return viaFn;
+    const viaRpc = await createViaRpc(body);
+    if (!viaRpc.error) return viaRpc;
+    return { error: viaSite.error };
   }
 
-  const unauthorized =
-    /unauthor/i.test(viaFn.error) ||
-    /invalid jwt/i.test(viaFn.error) ||
-    viaFn.error.includes('401');
+  const viaFn = await createViaFunction(body);
+  if (!viaFn.error) return viaFn;
+  const viaRpc = await createViaRpc(body);
+  if (!viaRpc.error) return viaRpc;
 
-  if (!unauthorized) {
-    return viaFn;
-  }
-
-  return createViaSignUp({ ...payload, email });
+  return { error: viaSite.error };
 }
