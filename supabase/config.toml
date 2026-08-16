@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.ensure-primary-manager]
 verify_jwt = false
+
+[functions.create-employee]
+verify_jwt = false

@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { useManagerData } from '@/lib/useManagerData';
 import { supabase } from '@/lib/supabase';
 import { updateUserAuth } from '@/lib/updateAuth';
+import { createStaffUser } from '@/lib/createStaffUser';
 import { DEVELOPER_EMAIL, isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
@@ -1034,27 +1035,17 @@ function AddEmployee({ departments, onReload }: { departments: { id: string; nam
     const departmentId = String(form.get('department_id') ?? '') || null;
     const phone = String(form.get('phone') ?? '');
 
-    const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-employee`;
-    const { data: sessionData } = await supabase.auth.getSession();
-    const res = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${sessionData.session?.access_token ?? ''}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({
-        email,
-        password,
-        full_name: fullName,
-        employee_number: employeeNumber || null,
-        department_id: departmentId,
-        phone: phone || null,
-      }),
+    const { error } = await createStaffUser({
+      email,
+      password,
+      full_name: fullName,
+      employee_number: employeeNumber || null,
+      department_id: departmentId,
+      phone: phone || null,
+      role: 'employee',
     });
-    const result = await res.json();
-    if (!res.ok) {
-      setMsg({ type: 'err', text: result.error ?? 'שגיאה ביצירת משתמש.' });
+    if (error) {
+      setMsg({ type: 'err', text: error });
       setBusy(false);
       return;
     }
@@ -2121,32 +2112,21 @@ function AddManagerForm({
       return;
     }
 
-    const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-employee`;
-    const { data: sessionData } = await supabase.auth.getSession();
-    const res = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${sessionData.session?.access_token ?? ''}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({
-        email,
-        password,
-        full_name: fullName,
-        phone: phone || null,
-        role: 'manager',
-      }),
+    const { error, id } = await createStaffUser({
+      email,
+      password,
+      full_name: fullName,
+      phone: phone || null,
+      role: 'manager',
     });
-    const result = await res.json().catch(() => ({ error: 'שגיאה ביצירת מנהל.' }));
-    if (!res.ok) {
-      setMsg({ type: 'err', text: result.error ?? 'שגיאה ביצירת מנהל.' });
+    if (error) {
+      setMsg({ type: 'err', text: error });
       setBusy(false);
       return;
     }
 
-    if (result.id) {
-      await supabase.from('profiles').update({ role: 'manager', hidden: false }).eq('id', result.id);
+    if (id) {
+      await supabase.from('profiles').update({ role: 'manager', hidden: false }).eq('id', id);
     }
 
     setMsg({ type: 'ok', text: 'המנהל נוסף. אפשר להתנתק ולהתחבר עם האימייל והסיסמה האלה.' });
