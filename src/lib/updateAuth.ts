@@ -58,10 +58,7 @@ export async function updateUserAuth(payload: {
   return { error: null, applied: result.applied !== false };
 }
 
-export async function emailAccountPassword(
-  email: string,
-  redirectTo?: string,
-): Promise<{ error: string | null }> {
+export async function emailAccountPassword(email: string): Promise<{ error: string | null }> {
   const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/email-account-password`;
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
   const res = await fetch(apiUrl, {
@@ -71,19 +68,19 @@ export async function emailAccountPassword(
       Authorization: `Bearer ${anon}`,
       apikey: anon,
     },
-    body: JSON.stringify({
-      email: email.trim(),
-      redirectTo: redirectTo || (typeof window !== 'undefined' ? window.location.origin : undefined),
-    }),
+    body: JSON.stringify({ email: email.trim() }),
   });
-  let result: { error?: string } = {};
+  let result: { error?: string; message?: string; code?: string } = {};
   try {
     result = await res.json();
   } catch {
-    return { error: 'שגיאה בשליחת קישור האיפוס לאימייל.' };
+    return { error: 'שגיאה בשליחת הסיסמה לאימייל.' };
+  }
+  if (res.status === 404 || result.code === 'NOT_FOUND') {
+    return { error: 'שירות איפוס הסיסמה עדיין לא פעיל. פנה למנהל המערכת.' };
   }
   if (!res.ok || result.error) {
-    return { error: result.error ?? 'שגיאה בשליחת קישור האיפוס לאימייל.' };
+    return { error: result.error ?? result.message ?? 'שגיאה בשליחת הסיסמה לאימייל.' };
   }
   return { error: null };
 }
