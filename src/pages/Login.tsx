@@ -60,7 +60,7 @@ export default function Login() {
       }
       setResetMsg({
         type: 'ok',
-        text: 'אם החשבון קיים, נשלח קישור לאימייל דרך SMTP של המערכת. בדוק גם בספאם.',
+        text: 'אם החשבון קיים, נשלח קישור לאימייל. בדוק גם בספאם.',
       });
     } catch {
       setResetMsg({ type: 'err', text: 'שליחת המייל נכשלה. נסה שוב.' });
