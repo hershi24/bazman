@@ -16,6 +16,13 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+function recoveryFromUrl() {
+  if (typeof window === 'undefined') return false;
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const query = new URLSearchParams(window.location.search);
+  return hash.get('type') === 'recovery' || query.get('type') === 'recovery';
+}
+
 function profileFromUser(user: User): Profile {
   const role = user.user_metadata?.role === 'manager' ? 'manager' : 'employee';
   return {
@@ -43,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [recoveryMode, setRecoveryMode] = useState(false);
+  const [recoveryMode, setRecoveryMode] = useState(recoveryFromUrl);
 
   async function loadProfile(uid: string, user?: User | null) {
     const withDept = await supabase

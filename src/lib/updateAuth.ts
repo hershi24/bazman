@@ -58,45 +58,79 @@ export async function updateUserAuth(payload: {
   return { error: null, applied: result.applied !== false };
 }
 
-function fetchWithTimeout(url: string, init: RequestInit, ms = 18000) {
+function fetchWithTimeout(url: string, init: RequestInit, ms = 5000) {
   const ctrl = new AbortController();
   const timer = window.setTimeout(() => ctrl.abort(), ms);
   return fetch(url, { ...init, signal: ctrl.signal }).finally(() => window.clearTimeout(timer));
 }
 
-export async function emailAccountPassword(email: string): Promise<{ error: string | null }> {
+function smtpMailError(message: string) {
+  if (/redirect|whitelist|not allowed|invalid.*url/i.test(message)) {
+    return 'כתובת האתר לא מורשית ב-Supabase. Authentication → URL Configuration → Redirect URLs.';
+  }
+  if (/rate limit|too many/i.test(message)) {
+    return 'נשלחו יותר מדי מיילים. נסה שוב בעוד כמה דקות.';
+  }
+  return message;
+}
+
+async function sendRecoveryViaSupabaseSmtp(email: string, redirectTo?: string) {
+  const send = async () => {
+    const options = redirectTo ? { redirectTo } : undefined;
+    const first = await supabase.auth.resetPasswordForEmail(email, options);
+    if (!first.error) return { error: null as string | null };
+    if (redirectTo && /redirect|whitelist|not allowed|invalid.*url/i.test(first.error.message)) {
+      const retry = await supabase.auth.resetPasswordForEmail(email);
+      if (!retry.error) return { error: null as string | null };
+      return { error: smtpMailError(retry.error.message) };
+    }
+    return { error: smtpMailError(first.error.message) };
+  };
+
+  let timer = 0;
+  try {
+    return await Promise.race([
+      send(),
+      new Promise<{ error: string }>((_, reject) => {
+        timer = window.setTimeout(() => reject(new DOMException('Timeout', 'AbortError')), 15000);
+      }),
+    ]);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { error: 'השליחה ארכה יותר מדי ולא הושלמה. נסה שוב.' };
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+export async function emailAccountPassword(
+  email: string,
+  redirectTo?: string,
+): Promise<{ error: string | null }> {
+  const addr = email.trim().toLowerCase();
+  const dest = redirectTo || (typeof window !== 'undefined' ? window.location.origin : undefined);
   const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/email-account-password`;
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-  let res: Response;
+
   try {
-    res = await fetchWithTimeout(apiUrl, {
+    const res = await fetchWithTimeout(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${anon}`,
         apikey: anon,
       },
-      body: JSON.stringify({ email: email.trim() }),
+      body: JSON.stringify({ email: addr, redirectTo: dest }),
     });
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      return { error: 'השליחה ארכה יותר מדי ולא הושלמה. נסה שוב.' };
+    if (res.ok) {
+      const result = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!result.error) return { error: null };
     }
-    return { error: 'לא הצלחנו להתחבר לשירות המייל. נסה שוב.' };
-  }
-
-  let result: { error?: string; message?: string; code?: string } = {};
-  try {
-    result = await res.json();
   } catch {
-    return { error: 'שגיאה בשליחת הסיסמה לאימייל.' };
+    // Function may be unpublished; Auth SMTP still works below.
   }
 
-  if (res.status === 404 || result.code === 'NOT_FOUND') {
-    return { error: 'שירות איפוס הסיסמה לא פעיל בשרת. פנה למנהל המערכת.' };
-  }
-  if (!res.ok || result.error) {
-    return { error: result.error ?? result.message ?? 'שגיאה בשליחת הסיסמה לאימייל.' };
-  }
-  return { error: null };
+  return sendRecoveryViaSupabaseSmtp(addr, dest);
 }

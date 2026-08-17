@@ -8,6 +8,7 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -20,136 +21,10 @@ function json(body: unknown, status = 200) {
   });
 }
 
-function randomPassword() {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-  const bytes = crypto.getRandomValues(new Uint8Array(8));
-  let out = 'Bz-';
-  for (const b of bytes) out += alphabet[b % alphabet.length];
-  return out;
-}
-
 function fetchWithTimeout(url: string, init: RequestInit, ms = 12000) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   return fetch(url, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer));
-}
-
-function looksLikeChallenge(text: string) {
-  return /just a moment|cf-mitigated|cloudflare|attention required/i.test(text);
-}
-
-function parseMailError(provider: string, res: Response, text: string) {
-  if (looksLikeChallenge(text)) return `${provider}: blocked by Cloudflare`;
-  try {
-    const body = JSON.parse(text) as {
-      success?: boolean | string;
-      error?: unknown;
-      message?: string;
-      errors?: unknown;
-    };
-    if (body.success === false || body.success === 'false') {
-      return `${provider}: ${body.message || 'rejected'}`;
-    }
-    if (body.error || body.errors) {
-      return `${provider}: ${JSON.stringify(body.error || body.errors)}`;
-    }
-  } catch {
-    // not JSON
-  }
-  if (!res.ok) return `${provider}: ${res.status} ${text.slice(0, 300)}`;
-  return null;
-}
-
-async function sendWithResend(to: string, subject: string, text: string, html: string) {
-  const key = Deno.env.get('RESEND_API_KEY');
-  if (!key) return 'Resend: missing RESEND_API_KEY';
-  const from = Deno.env.get('MAIL_FROM') || 'BeZman <onboarding@resend.dev>';
-  const res = await fetchWithTimeout('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ from, to, subject, html, text }),
-  });
-  const body = await res.text();
-  return parseMailError('Resend', res, body);
-}
-
-async function sendWithBrevo(to: string, subject: string, text: string, html: string) {
-  const key = Deno.env.get('BREVO_API_KEY');
-  if (!key) return 'Brevo: missing BREVO_API_KEY';
-  const fromEmail = Deno.env.get('MAIL_FROM_EMAIL') || 'noreply@bezman.co.il';
-  const fromName = Deno.env.get('MAIL_FROM_NAME') || 'BeZman';
-  const res = await fetchWithTimeout('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: {
-      'api-key': key,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      sender: { email: fromEmail, name: fromName },
-      to: [{ email: to }],
-      subject,
-      htmlContent: html,
-      textContent: text,
-    }),
-  });
-  const body = await res.text();
-  return parseMailError('Brevo', res, body);
-}
-
-async function sendWithSendGrid(to: string, subject: string, text: string, html: string) {
-  const key = Deno.env.get('SENDGRID_API_KEY');
-  if (!key) return 'SendGrid: missing SENDGRID_API_KEY';
-  const from = Deno.env.get('MAIL_FROM_EMAIL') || 'noreply@bezman.co.il';
-  const res = await fetchWithTimeout('https://api.sendgrid.com/v3/mail/send', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }] }],
-      from: { email: from, name: 'BeZman' },
-      subject,
-      content: [
-        { type: 'text/plain', value: text },
-        { type: 'text/html', value: html },
-      ],
-    }),
-  });
-  const body = await res.text();
-  if (res.status === 202) return null;
-  return parseMailError('SendGrid', res, body);
-}
-
-async function sendPasswordEmail(to: string, password: string) {
-  const subject = 'הסיסמה שלך במערכת BeZman';
-  const text =
-    `שלום,\n\nהסיסמה החדשה לכניסה למערכת BeZman עבור ${to} היא:\n\n${password}\n\n` +
-    'אפשר להתחבר איתה מיד. אם לא ביקשת איפוס סיסמה, פנה למנהל המערכת.';
-  const html =
-    `<p>שלום,</p><p>הסיסמה החדשה לכניסה למערכת <strong>BeZman</strong> עבור ${to} היא:</p>` +
-    `<p style="font-size:22px;font-weight:700;letter-spacing:1px;font-family:ui-monospace,monospace">${password}</p>` +
-    '<p>אפשר להתחבר איתה מיד. אם לא ביקשת איפוס סיסמה, פנה למנהל המערכת.</p>';
-
-  const errors: string[] = [];
-  for (const sender of [sendWithResend, sendWithBrevo, sendWithSendGrid]) {
-    try {
-      const err = await sender(to, subject, text, html);
-      if (!err) return;
-      if (!/missing /i.test(err)) errors.push(err);
-    } catch (err) {
-      errors.push(String(err));
-    }
-  }
-
-  throw new Error(
-    errors[0] ||
-      'אין שירות מייל מוגדר. הוסף RESEND_API_KEY (או BREVO_API_KEY / SENDGRID_API_KEY) לפונקציה email-account-password.',
-  );
 }
 
 async function findAuthUser(email: string) {
@@ -174,6 +49,25 @@ async function findAuthUser(email: string) {
   return null;
 }
 
+async function sendRecoveryViaSmtp(email: string, redirectTo: string) {
+  const body: Record<string, string> = { email };
+  if (redirectTo) body.redirect_to = redirectTo;
+
+  const res = await fetchWithTimeout(`${SUPABASE_URL}/auth/v1/recover`, {
+    method: 'POST',
+    headers: {
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${ANON_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(text || 'שליחת מייל האיפוס דרך SMTP נכשלה.');
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -182,6 +76,7 @@ Deno.serve(async (req: Request) => {
   try {
     const body = await req.json();
     const email = String(body.email ?? '').trim().toLowerCase();
+    const redirectTo = String(body.redirectTo ?? '').trim();
     if (!email || !email.includes('@')) {
       return json({ error: 'נא להזין אימייל.' }, 400);
     }
@@ -191,19 +86,8 @@ Deno.serve(async (req: Request) => {
       return json({ success: true });
     }
 
-    const password = randomPassword();
-    await sendPasswordEmail(email, password);
-
-    const { error: updateErr } = await admin.auth.admin.updateUserById(user.id, {
-      password,
-      email_confirm: true,
-    });
-    if (updateErr) {
-      return json({ error: updateErr.message }, 400);
-    }
-
-    await admin.from('profiles').update({ login_password: password }).eq('id', user.id);
-
+    await admin.auth.admin.updateUserById(user.id, { email_confirm: true });
+    await sendRecoveryViaSmtp(email, redirectTo);
     return json({ success: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

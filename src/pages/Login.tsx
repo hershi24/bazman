@@ -27,7 +27,7 @@ export default function Login() {
     if (type === 'email_change') {
       setInfo('האימייל אושר. אפשר להתחבר עם הכתובת החדשה.');
     } else if (errCode === 'otp_expired' || hash.get('error') === 'access_denied') {
-      setError('קישור האישור אינו תקף. האימייל מתעדכן ישירות בהגדרות, בלי קישור.');
+      setError('הקישור פג תוקף. אם ביקשת איפוס סיסמה, שלח קישור חדש.');
     }
     if (type || errCode || hash.get('error')) {
       window.history.replaceState({}, '', window.location.pathname);
@@ -53,14 +53,14 @@ export default function Login() {
     }
     setResetBusy(true);
     try {
-      const { error } = await emailAccountPassword(addr);
+      const { error } = await emailAccountPassword(addr, window.location.origin);
       if (error) {
         setResetMsg({ type: 'err', text: error });
         return;
       }
       setResetMsg({
         type: 'ok',
-        text: 'אם החשבון קיים, נשלחה סיסמה חדשה לאימייל. בדוק גם בספאם והתחבר איתה.',
+        text: 'אם החשבון קיים, נשלח קישור לאימייל דרך SMTP של המערכת. בדוק גם בספאם.',
       });
     } catch {
       setResetMsg({ type: 'err', text: 'שליחת המייל נכשלה. נסה שוב.' });
@@ -187,7 +187,7 @@ export default function Login() {
           ) : (
             <>
               <h2 className="text-2xl font-extrabold text-slate-800">איפוס סיסמה</h2>
-              <p className="mt-1 text-sm text-slate-500">נשלח לאימייל שלך את הסיסמה החדשה של החשבון</p>
+              <p className="mt-1 text-sm text-slate-500">נשלח לאימייל שלך קישור לבחירת סיסמה חדשה</p>
 
               <form onSubmit={sendReset} noValidate className="mt-6 space-y-4">
                 <div>
@@ -224,7 +224,7 @@ export default function Login() {
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white shadow-lg transition hover:bg-brand-700 disabled:opacity-60"
                 >
                   {resetBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mail className="h-5 w-5" />}
-                  {resetBusy ? 'שולח...' : 'שלח סיסמה לאימייל'}
+                  {resetBusy ? 'שולח...' : 'שלח קישור לאימייל'}
                 </button>
               </form>
 
