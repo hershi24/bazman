@@ -58,32 +58,45 @@ export async function updateUserAuth(payload: {
   return { error: null, applied: result.applied !== false };
 }
 
-export async function emailAccountPassword(
-  email: string,
-  redirectTo?: string,
-): Promise<{ error: string | null }> {
+function fetchWithTimeout(url: string, init: RequestInit, ms = 18000) {
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...init, signal: ctrl.signal }).finally(() => window.clearTimeout(timer));
+}
+
+export async function emailAccountPassword(email: string): Promise<{ error: string | null }> {
   const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/email-account-password`;
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-  const res = await fetch(apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${anon}`,
-      apikey: anon,
-    },
-    body: JSON.stringify({
-      email: email.trim(),
-      redirectTo: redirectTo || (typeof window !== 'undefined' ? window.location.origin : undefined),
-    }),
-  });
-  let result: { error?: string } = {};
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${anon}`,
+        apikey: anon,
+      },
+      body: JSON.stringify({ email: email.trim() }),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return { error: 'השליחה ארכה יותר מדי ולא הושלמה. נסה שוב.' };
+    }
+    return { error: 'לא הצלחנו להתחבר לשירות המייל. נסה שוב.' };
+  }
+
+  let result: { error?: string; message?: string; code?: string } = {};
   try {
     result = await res.json();
   } catch {
-    return { error: 'שגיאה בשליחת קישור האיפוס לאימייל.' };
+    return { error: 'שגיאה בשליחת הסיסמה לאימייל.' };
+  }
+
+  if (res.status === 404 || result.code === 'NOT_FOUND') {
+    return { error: 'שירות איפוס הסיסמה לא פעיל בשרת. פנה למנהל המערכת.' };
   }
   if (!res.ok || result.error) {
-    return { error: result.error ?? 'שגיאה בשליחת קישור האיפוס לאימייל.' };
+    return { error: result.error ?? result.message ?? 'שגיאה בשליחת הסיסמה לאימייל.' };
   }
   return { error: null };
 }
