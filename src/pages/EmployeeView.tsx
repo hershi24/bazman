@@ -43,6 +43,7 @@ import {
   formatHoursAdjustmentPayload,
   HOURS_ADJUST_TYPE,
   hoursAdjustmentSummary,
+  originalHoursSummary,
   isHoursAdjustmentType,
   parseHoursAdjustment,
 } from '@/lib/hoursAdjustment';
@@ -720,6 +721,8 @@ function RequestPanel() {
   const [wantOut, setWantOut] = useState(true);
   const [clockIn, setClockIn] = useState('');
   const [clockOut, setClockOut] = useState('');
+  const [originalIn, setOriginalIn] = useState<string | null>(null);
+  const [originalOut, setOriginalOut] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [myRequests, setMyRequests] = useState<EmployeeRequest[]>([]);
@@ -756,15 +759,23 @@ function RequestPanel() {
         .order('clock_in', { ascending: true })
         .limit(1)
         .maybeSingle();
-      if (!data) return;
       const toTime = (iso: string | null) => {
         if (!iso) return '';
         const dt = new Date(iso);
         if (isNaN(dt.getTime())) return '';
         return `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
       };
-      if (data.clock_in) setClockIn(toTime(data.clock_in));
-      if (data.clock_out) setClockOut(toTime(data.clock_out));
+      if (!data) {
+        setOriginalIn(null);
+        setOriginalOut(null);
+        return;
+      }
+      const origIn = toTime(data.clock_in);
+      const origOut = toTime(data.clock_out);
+      setOriginalIn(origIn || null);
+      setOriginalOut(origOut || null);
+      if (origIn) setClockIn(origIn);
+      if (origOut) setClockOut(origOut);
     })();
   }, [hoursMode, date, profile]);
 
@@ -795,6 +806,8 @@ function RequestPanel() {
       payloadDescription = formatHoursAdjustmentPayload({
         clockIn: inTime || null,
         clockOut: outTime || null,
+        originalClockIn: originalIn,
+        originalClockOut: originalOut,
         note: description.trim(),
       });
     }
@@ -815,6 +828,8 @@ function RequestPanel() {
       setDate('');
       setClockIn('');
       setClockOut('');
+      setOriginalIn(null);
+      setOriginalOut(null);
       setWantIn(true);
       setWantOut(true);
       loadMine();
@@ -949,7 +964,12 @@ function RequestPanel() {
                   </Badge>
                 </div>
                 {adj ? (
-                  <p className="mt-0.5 text-xs font-medium text-slate-600">{hoursAdjustmentSummary(adj)}</p>
+                  <>
+                    <p className="mt-0.5 text-xs font-medium text-slate-600">מבוקש: {hoursAdjustmentSummary(adj)}</p>
+                    {originalHoursSummary(adj) ? (
+                      <p className="mt-0.5 text-xs text-slate-400">לפני השינוי: {originalHoursSummary(adj)}</p>
+                    ) : null}
+                  </>
                 ) : (
                   <p className="mt-0.5 truncate text-xs text-slate-400">{r.description || '—'}</p>
                 )}

@@ -1,6 +1,6 @@
 import type { Attendance, EmployeeRequest, Profile } from '@/types';
 import { formatHebrewDate, formatTime } from '@/lib/format';
-import { hoursAdjustmentSummary, parseHoursAdjustment } from '@/lib/hoursAdjustment';
+import { hoursAdjustmentSummary, originalHoursSummary, parseHoursAdjustment, effectiveRequestDecision } from '@/lib/hoursAdjustment';
 
 export const MONTH_NAMES = [
   'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
@@ -78,22 +78,27 @@ export function changeRequestDecisionLabel(req: EmployeeRequest): string {
   return 'אושר';
 }
 
-export function formatChangeRequestPlain(req: EmployeeRequest): string {
+export function formatChangeRequestPlain(req: EmployeeRequest, record?: Attendance | null): string {
   const adj = parseHoursAdjustment(req.description);
   const asked = adj
-    ? `${req.type} — ${hoursAdjustmentSummary(adj)}${adj.note ? ` (${adj.note})` : ''}`
+    ? `${req.type} — מבוקש: ${hoursAdjustmentSummary(adj)}`
     : req.description?.trim()
       ? `${req.type} — ${req.description.trim()}`
       : req.type;
-  const decision = changeRequestDecisionLabel(req);
+  const before = adj ? originalHoursSummary(adj) : '';
+  const kind = effectiveRequestDecision(req, record);
+  const decision =
+    kind === 'pending' ? 'ממתין' : kind === 'rejected' ? 'נדחה' : kind === 'changed' ? 'שונה' : 'אושר';
   const note = req.manager_note?.trim();
-  if (note) return `בקשה: ${asked}. החלטה: ${decision} — ${note}`;
-  return `בקשה: ${asked}. החלטה: ${decision}`;
+  const parts = [`בקשה: ${asked}`];
+  if (before) parts.push(`לפני השינוי: ${before}`);
+  parts.push(`החלטה: ${decision}${note ? ` — ${note}` : ''}`);
+  return parts.join('. ');
 }
 
-export function formatChangeRequestsPlain(reqs: EmployeeRequest[]): string {
+export function formatChangeRequestsPlain(reqs: EmployeeRequest[], record?: Attendance | null): string {
   if (reqs.length === 0) return '';
-  return reqs.map(formatChangeRequestPlain).join(' | ');
+  return reqs.map((req) => formatChangeRequestPlain(req, record)).join(' | ');
 }
 
 function escapeHtml(s: string): string {
@@ -104,21 +109,24 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-export function formatChangeRequestHtml(req: EmployeeRequest): string {
+export function formatChangeRequestHtml(req: EmployeeRequest, record?: Attendance | null): string {
   const adj = parseHoursAdjustment(req.description);
   const askedRaw = adj
-    ? `${req.type} — ${hoursAdjustmentSummary(adj)}${adj.note ? ` (${adj.note})` : ''}`
+    ? `${req.type} — מבוקש: ${hoursAdjustmentSummary(adj)}`
     : req.description?.trim()
       ? `${req.type} — ${req.description.trim()}`
       : req.type;
   const asked = escapeHtml(askedRaw);
-  const decision = changeRequestDecisionLabel(req);
-  const kind = changeRequestDecision(req);
+  const before = adj ? originalHoursSummary(adj) : '';
+  const kind = effectiveRequestDecision(req, record);
+  const decision =
+    kind === 'pending' ? 'ממתין' : kind === 'rejected' ? 'נדחה' : kind === 'changed' ? 'שונה' : 'אושר';
   const cls =
     kind === 'rejected' ? 'st-rejected' : kind === 'pending' ? 'st-pending' : kind === 'changed' ? 'st-changed' : 'st-approved';
   const note = req.manager_note?.trim();
   const decisionHtml = note ? `${escapeHtml(decision)} — ${escapeHtml(note)}` : escapeHtml(decision);
-  return `<div class="chg"><div>בקשה: ${asked}</div><div>החלטה: <span class="${cls}">${decisionHtml}</span></div></div>`;
+  const beforeHtml = before ? `<div>לפני השינוי: ${escapeHtml(before)}</div>` : '';
+  return `<div class="chg"><div>בקשה: ${asked}</div>${beforeHtml}<div>החלטה: <span class="${cls}">${decisionHtml}</span></div></div>`;
 }
 
 export function computeMonthlySummary(records: Attendance[], requests: EmployeeRequest[] = []): MonthlySummary {
@@ -147,7 +155,7 @@ function buildReportRows(records: Attendance[], requests: EmployeeRequest[]): st
       const isWeekend = dow >= 5;
       const hours = r.clock_out ? parseHours(r.clock_in, r.clock_out).toFixed(1) : '—';
       const dayReqs = requestsForAttendanceDay(r.user_id, r.clock_in, requests);
-      const changeCell = dayReqs.length > 0 ? dayReqs.map(formatChangeRequestHtml).join('') : '';
+      const changeCell = dayReqs.length > 0 ? dayReqs.map((req) => formatChangeRequestHtml(req, r)).join('') : '';
       return `<tr class="${isWeekend ? 'weekend' : ''}">
         <td class="date">${formatHebrewDate(r.clock_in)}</td>
         <td class="${isWeekend ? 'weekend-day' : ''}">${DAY_NAMES_LONG[dow]}</td>
@@ -284,7 +292,7 @@ export function downloadMonthlyReportCsv(
       r.clock_out ? formatTime(r.clock_out) : 'יציאה חסרה',
       hours,
       r.location_verified || r.qr_verified ? 'מאומת' : 'לא מאומת',
-      formatChangeRequestsPlain(dayReqs),
+      formatChangeRequestsPlain(dayReqs, r),
     ].map(csvEscape);
   });
 

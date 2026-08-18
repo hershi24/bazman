@@ -16,6 +16,7 @@ import { RequestsTable, MissingAttendanceTable } from '@/components/manager/Dash
 import { TodayAttendance, ManagerReminders } from '@/components/manager/Widgets';
 import { Card, SectionTitle, Avatar, Badge } from '@/components/ui';
 import WorkHoursSummary from '@/components/manager/WorkHoursSummary';
+import { managerDeleteAttendance, managerInsertAttendance } from '@/lib/managerAttendance';
 import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
 import { formatChangeRequestsPlain, requestsForAttendanceDay } from '@/lib/monthlyReport';
 import type { Profile, Attendance, Shift, EmployeeRequest, Reminder, Expense, QuickSticker, ProfileField, AllowedLocation, EmployeeLocation, Department } from '@/types';
@@ -1217,11 +1218,51 @@ function EmployeeReportsPage({ attendance, profiles, onReload }: { attendance: A
   const [selected, setSelected] = useState<string>('');
   const [editRow, setEditRow] = useState<Attendance | null>(null);
   const [deleteRow, setDeleteRow] = useState<Attendance | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addEmp, setAddEmp] = useState('');
+  const [addDate, setAddDate] = useState('');
+  const [addIn, setAddIn] = useState('08:00');
+  const [addOut, setAddOut] = useState('17:00');
+  const [addBusy, setAddBusy] = useState(false);
+  const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const employees = profiles.filter((p) => p.role === 'employee' && p.status === 'active');
   const empAtt = attendance.filter((a) => !selected || a.user_id === selected);
 
   async function handleDelete(id: string) {
-    await supabase.from('attendance').delete().eq('id', id);
+    const result = await managerDeleteAttendance(id);
+    if (result.error) {
+      setMsg({ type: 'err', text: result.error });
+      setDeleteRow(null);
+      return;
+    }
+    setMsg({ type: 'ok', text: 'הדיווח נמחק.' });
     setDeleteRow(null);
+    onReload();
+  }
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    const userId = addEmp || selected;
+    if (!userId || !addDate || !addIn) {
+      setMsg({ type: 'err', text: 'נא לבחור עובד, תאריך ושעת כניסה.' });
+      return;
+    }
+    if (addOut && addOut <= addIn) {
+      setMsg({ type: 'err', text: 'שעת היציאה צריכה להיות אחרי שעת הכניסה.' });
+      return;
+    }
+    setAddBusy(true);
+    setMsg(null);
+    const clockIn = new Date(`${addDate}T${addIn}:00+03:00`).toISOString();
+    const clockOut = addOut ? new Date(`${addDate}T${addOut}:00+03:00`).toISOString() : null;
+    const result = await managerInsertAttendance({ userId, clockIn, clockOut });
+    setAddBusy(false);
+    if (result.error) {
+      setMsg({ type: 'err', text: result.error });
+      return;
+    }
+    setMsg({ type: 'ok', text: 'הדיווח נוסף.' });
+    setShowAdd(false);
     onReload();
   }
 
@@ -1229,15 +1270,43 @@ function EmployeeReportsPage({ attendance, profiles, onReload }: { attendance: A
     <Card>
       <SectionTitle title="ניהול דיווחים לעובד" icon={<ClipboardList className="h-5 w-5" />} />
       <p className="border-b border-slate-100 px-5 py-3 text-sm text-slate-500">
-        כאן מתקנים או מוחקים <span className="font-semibold text-slate-700">דיווח נוכחות</span> (כניסה/יציאה) של עובד.
+        כאן מוסיפים, מתקנים או מוחקים <span className="font-semibold text-slate-700">דיווח נוכחות</span> (כניסה/יציאה).
         המחיקה מוחקת רק את השורה הזו — העובד נשאר במערכת.
       </p>
-      <div className="border-b border-slate-100 p-4">
+      <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-4">
         <select value={selected} onChange={(e) => setSelected(e.target.value)} className="w-full max-w-xs rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none focus:border-brand-500 focus:bg-white">
           <option value="">כל העובדים</option>
-          {profiles.filter((p) => p.role === 'employee').map((p) => (<option key={p.id} value={p.id}>{p.full_name}</option>))}
+          {employees.map((p) => (<option key={p.id} value={p.id}>{p.full_name}</option>))}
         </select>
+        <button
+          type="button"
+          onClick={() => {
+            setShowAdd((v) => !v);
+            setAddEmp(selected);
+            setMsg(null);
+          }}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-700"
+        >
+          <Plus className="h-4 w-4" /> הוסף דיווח
+        </button>
       </div>
+      {showAdd && (
+        <form onSubmit={handleAdd} className="grid grid-cols-1 gap-3 border-b border-slate-100 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-5">
+          <select required value={addEmp} onChange={(e) => setAddEmp(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+            <option value="">בחר עובד</option>
+            {employees.map((p) => (<option key={p.id} value={p.id}>{p.full_name}</option>))}
+          </select>
+          <input type="date" required value={addDate} onChange={(e) => setAddDate(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" />
+          <input type="time" required dir="ltr" value={addIn} onChange={(e) => setAddIn(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" />
+          <input type="time" dir="ltr" value={addOut} onChange={(e) => setAddOut(e.target.value)} className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" />
+          <button type="submit" disabled={addBusy} className="rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-900 disabled:opacity-60">
+            {addBusy ? 'מוסיף...' : 'שמור דיווח'}
+          </button>
+        </form>
+      )}
+      {msg && (
+        <p className={`px-5 py-2 text-sm font-medium ${msg.type === 'ok' ? 'text-emerald-700' : 'text-rose-700'}`}>{msg.text}</p>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-right text-sm">
           <thead className="bg-slate-50 text-xs text-slate-500">

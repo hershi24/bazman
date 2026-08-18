@@ -57,6 +57,76 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = await req.json();
+    if (body?.action === 'apply-hours') {
+      const employeeId = String(body.employeeId ?? '');
+      const date = String(body.date ?? '').slice(0, 10);
+      const clockIn = body.clockIn ? String(body.clockIn) : null;
+      const clockOut = body.clockOut ? String(body.clockOut) : null;
+      if (!employeeId || !date || (!clockIn && !clockOut)) {
+        return new Response(JSON.stringify({ error: 'Missing hours fields' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const dateKey = (iso: string | null | undefined) => {
+        if (!iso) return '';
+        if (/^\d{4}-\d{2}-\d{2}/.test(iso)) return iso.slice(0, 10);
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      };
+      const toIso = (time: string) => {
+        const [hh, mm] = time.split(':');
+        return new Date(`${date}T${String(Number(hh)).padStart(2, '0')}:${String(Number(mm)).padStart(2, '0')}:00+03:00`).toISOString();
+      };
+      const { data: rows } = await adminClient
+        .from('attendance')
+        .select('id, clock_in, clock_out')
+        .eq('user_id', employeeId)
+        .order('clock_in', { ascending: false })
+        .limit(120);
+      const existing = (rows ?? []).find((r: { clock_in: string | null }) => dateKey(r.clock_in) === date);
+      const patch: Record<string, unknown> = {};
+      if (clockIn) patch.clock_in = toIso(clockIn);
+      if (clockOut) patch.clock_out = toIso(clockOut);
+      if (existing) {
+        const { error } = await adminClient.from('attendance').update(patch).eq('id', existing.id);
+        if (error) {
+          return new Response(JSON.stringify({ error: error.message }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      } else if (clockIn) {
+        const { error } = await adminClient.from('attendance').insert({
+          user_id: employeeId,
+          clock_in: patch.clock_in,
+          clock_out: patch.clock_out ?? null,
+          lat: null,
+          lng: null,
+          location_verified: false,
+          qr_verified: false,
+          note: 'עודכן מאישור התאמת שעות',
+          status: 'approved',
+        });
+        if (error) {
+          return new Response(JSON.stringify({ error: error.message }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      } else {
+        return new Response(JSON.stringify({ error: 'אין דיווח ביום זה ואין שעת כניסה.' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const { email, password, full_name, employee_number, department_id, phone, role: rawRole } = body;
     const role = rawRole === 'manager' ? 'manager' : 'employee';
 

@@ -7,6 +7,7 @@ import type { EmployeeRequest, Attendance } from '@/types';
 import {
   applyHoursAdjustment,
   hoursAdjustmentSummary,
+  originalHoursSummary,
   isHoursAdjustmentType,
   parseHoursAdjustment,
 } from '@/lib/hoursAdjustment';
@@ -184,7 +185,10 @@ export function RequestsTable({
                       if (adj) {
                         return (
                           <>
-                            <div className="font-semibold text-slate-700">{hoursAdjustmentSummary(adj)}</div>
+                            <div className="font-semibold text-slate-700">מבוקש: {hoursAdjustmentSummary(adj)}</div>
+                            {originalHoursSummary(adj) ? (
+                              <div className="mt-0.5 text-xs text-slate-500">לפני: {originalHoursSummary(adj)}</div>
+                            ) : null}
                             {adj.note ? <div className="mt-0.5 truncate text-xs">{adj.note}</div> : null}
                           </>
                         );

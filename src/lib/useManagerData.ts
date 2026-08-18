@@ -39,7 +39,7 @@ export function useManagerData() {
         .from('attendance')
         .select('*, profile:profiles(*, department:departments(*))')
         .order('created_at', { ascending: false })
-        .limit(50),
+        .limit(500),
       supabase
         .from('requests')
         .select('*, profile:profiles(*, department:departments(*))')

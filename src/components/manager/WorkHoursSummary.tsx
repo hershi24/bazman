@@ -21,12 +21,13 @@ import { Card, Avatar, Badge } from '@/components/ui';
 import { formatHebrewDate, formatTime } from '@/lib/format';
 import { supabase } from '@/lib/supabase';
 import type { Attendance, EmployeeRequest, Profile } from '@/types';
+import { formatChangeRequestHtml, requestsForAttendanceDay } from '@/lib/monthlyReport';
 import {
-  changeRequestDecision,
-  changeRequestDecisionLabel,
-  formatChangeRequestHtml,
-  requestsForAttendanceDay,
-} from '@/lib/monthlyReport';
+  effectiveRequestDecision,
+  hoursAdjustmentSummary,
+  originalHoursSummary,
+  parseHoursAdjustment,
+} from '@/lib/hoursAdjustment';
 
 function toDateTimeLocal(iso: string | null): string {
   if (!iso) return '';
@@ -95,7 +96,10 @@ function ChangeRequestBlock({
   return (
     <div className="max-w-xs space-y-1.5">
       {items.map((req) => {
-        const kind = changeRequestDecision(req);
+        const adj = parseHoursAdjustment(req.description);
+        const kind = effectiveRequestDecision(req, record);
+        const decision =
+          kind === 'pending' ? 'ממתין' : kind === 'rejected' ? 'נדחה' : kind === 'changed' ? 'שונה' : 'אושר';
         const color =
           kind === 'rejected'
             ? 'text-rose-600'
@@ -104,16 +108,23 @@ function ChangeRequestBlock({
               : kind === 'changed'
                 ? 'text-sky-700'
                 : 'text-emerald-700';
+        const before = adj ? originalHoursSummary(adj) : '';
         return (
           <div key={req.id} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] leading-snug text-slate-600">
             <p>
               <span className="font-bold text-slate-700">בקשה: </span>
               {req.type}
-              {req.description?.trim() ? ` — ${req.description.trim()}` : ''}
+              {adj ? ` — מבוקש: ${hoursAdjustmentSummary(adj)}` : ''}
             </p>
+            {before ? (
+              <p>
+                <span className="font-bold text-slate-700">לפני השינוי: </span>
+                {before}
+              </p>
+            ) : null}
             <p>
               <span className="font-bold text-slate-700">החלטה: </span>
-              <span className={`font-bold ${color}`}>{changeRequestDecisionLabel(req)}</span>
+              <span className={`font-bold ${color}`}>{decision}</span>
               {req.manager_note?.trim() ? ` — ${req.manager_note.trim()}` : ''}
             </p>
           </div>
@@ -223,7 +234,7 @@ export default function WorkHoursSummary({
             <td class="out">${formatTime(r.clock_out) || '<span class=\"missing\">יציאה חסרה</span>'}</td>
             <td class="hours">${hours}</td>
             <td>${r.location_verified ? 'מאומת' : 'לא מאומת'}</td>
-            <td class="change">${requestsForAttendanceDay(r.user_id, r.clock_in, requests).map(formatChangeRequestHtml).join('')}</td>
+            <td class="change">${requestsForAttendanceDay(r.user_id, r.clock_in, requests).map((req) => formatChangeRequestHtml(req, r)).join('')}</td>
           </tr>`;
         }).join('');
         return `
@@ -634,9 +645,9 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
             const hasMissing = dayRecords.some((r) => !r.clock_out);
             const dayReqs = dayRecords.flatMap((r) => requestsForAttendanceDay(r.user_id, r.clock_in, requests));
             const hasChange = dayReqs.length > 0;
-            const hasPendingReq = dayReqs.some((r) => r.status === 'pending');
-            const hasRejectedReq = dayReqs.some((r) => r.status === 'rejected');
-            const hasChangedReq = dayReqs.some((r) => changeRequestDecision(r) === 'changed');
+            const hasPendingReq = dayReqs.some((r) => effectiveRequestDecision(r, dayRecords[0]) === 'pending');
+            const hasRejectedReq = dayReqs.some((r) => effectiveRequestDecision(r, dayRecords[0]) === 'rejected');
+            const hasChangedReq = dayReqs.some((r) => effectiveRequestDecision(r, dayRecords[0]) === 'changed');
 
             const statusColor = !hasRecords
               ? ''
