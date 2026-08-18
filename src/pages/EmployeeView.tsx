@@ -35,6 +35,9 @@ import {
   parseHours,
   printMonthlyReport,
   downloadMonthlyReportCsv,
+  localDateKey,
+  requestsForAttendanceDay,
+  formatChangeRequestsPlain,
 } from '@/lib/monthlyReport';
 import { Avatar, Badge, Card, SectionTitle } from '@/components/ui';
 import jsQR from 'jsqr';
@@ -852,6 +855,7 @@ function HistoryPanel() {
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(monthKey(now));
   const [records, setRecords] = useState<Attendance[]>([]);
+  const [monthRequests, setMonthRequests] = useState<EmployeeRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -859,19 +863,31 @@ function HistoryPanel() {
     (async () => {
       setLoading(true);
       const { start, end } = monthDateRange(selectedMonth);
-      const { data } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('user_id', profile.id)
-        .gte('clock_in', start)
-        .lte('clock_in', end)
-        .order('clock_in', { ascending: false });
+      const [{ data }, { data: reqData }] = await Promise.all([
+        supabase
+          .from('attendance')
+          .select('*')
+          .eq('user_id', profile.id)
+          .gte('clock_in', start)
+          .lte('clock_in', end)
+          .order('clock_in', { ascending: false }),
+        supabase
+          .from('requests')
+          .select('*')
+          .eq('user_id', profile.id)
+          .order('created_at', { ascending: false }),
+      ]);
       setRecords((data as Attendance[]) ?? []);
+      const inMonth = ((reqData as EmployeeRequest[]) ?? []).filter((r) => {
+        const key = localDateKey(r.requested_date);
+        return key.startsWith(selectedMonth);
+      });
+      setMonthRequests(inMonth);
       setLoading(false);
     })();
   }, [profile, selectedMonth]);
 
-  const summary = computeMonthlySummary(records);
+  const summary = computeMonthlySummary(records, monthRequests);
 
   function navigateMonth(dir: number) {
     const [y, m] = selectedMonth.split('-').map(Number);
@@ -944,7 +960,7 @@ function HistoryPanel() {
         </div>
 
         {summary.records.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className={`grid grid-cols-2 gap-3 ${summary.changeRequests.length > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
             <div className="rounded-xl border border-brand-100 bg-brand-50 p-3 text-center">
               <p className="text-2xl font-extrabold text-brand-700">{summary.daysWorked}</p>
               <p className="text-xs text-brand-600">ימי עבודה</p>
@@ -959,10 +975,12 @@ function HistoryPanel() {
               </p>
               <p className="text-xs text-accent-600">ממוצע יומי</p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
-              <p className="text-2xl font-extrabold text-slate-700">{summary.approved}</p>
-              <p className="text-xs text-slate-500">מאושרים</p>
-            </div>
+            {summary.changeRequests.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
+                <p className="text-2xl font-extrabold text-slate-700">{summary.changeRequests.length}</p>
+                <p className="text-xs text-slate-500">בקשות שינוי</p>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -974,11 +992,13 @@ function HistoryPanel() {
       ) : (
         <>
           <div className="divide-y divide-slate-100">
-            {records.map((a) => (
+            {records.map((a) => {
+              const dayReqs = requestsForAttendanceDay(a.user_id, a.clock_in, monthRequests);
+              return (
               <div key={a.id} className="flex items-center justify-between gap-3 px-5 py-3">
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <div
-                    className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                       a.location_verified || a.qr_verified
                         ? 'bg-emerald-100 text-emerald-600'
                         : 'bg-amber-100 text-amber-600'
@@ -986,25 +1006,26 @@ function HistoryPanel() {
                   >
                     <Clock className="h-5 w-5" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-bold text-slate-700">{formatHebrewDate(a.clock_in)}</p>
                     <p className="text-xs text-slate-400">
                       {formatTime(a.clock_in)} — {formatTime(a.clock_out)} ·{' '}
                       {a.clock_out ? `${parseHours(a.clock_in, a.clock_out).toFixed(1)} שעות` : 'יציאה חסרה'}
                     </p>
+                    {dayReqs.length > 0 && (
+                      <p className="mt-1 text-[11px] leading-snug text-slate-600">{formatChangeRequestsPlain(dayReqs)}</p>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <Badge color={a.status === 'approved' ? 'green' : a.status === 'rejected' ? 'red' : 'amber'}>
-                    {a.status === 'approved' ? 'מאושר' : a.status === 'rejected' ? 'נדחה' : 'ממתין'}
-                  </Badge>
                   <div className="flex gap-1">
                     {a.location_verified && <MapPin className="h-3.5 w-3.5 text-emerald-500" />}
                     {a.qr_verified && <QrCode className="h-3.5 w-3.5 text-brand-500" />}
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
           <div className="flex items-center justify-between border-t-2 border-slate-200 bg-slate-50 px-5 py-3">
             <span className="text-sm font-extrabold text-slate-700">סה"כ חודשי</span>

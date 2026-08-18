@@ -17,6 +17,7 @@ import { TodayAttendance, ManagerReminders } from '@/components/manager/Widgets'
 import { Card, SectionTitle, Avatar, Badge } from '@/components/ui';
 import WorkHoursSummary from '@/components/manager/WorkHoursSummary';
 import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
+import { formatChangeRequestsPlain, requestsForAttendanceDay } from '@/lib/monthlyReport';
 import type { Profile, Attendance, Shift, EmployeeRequest, Reminder, Expense, QuickSticker, ProfileField, AllowedLocation, EmployeeLocation, Department } from '@/types';
 
 export default function ManagerView() {
@@ -130,7 +131,7 @@ function GenericPage({
     'manager-reminders': <ManagerRemindersFullPage reminders={data.reminders} onReload={data.reload} />,
     'restore-employees': <RestoreEmployeesPage profiles={data.profiles} onReload={data.reload} />,
     'no-reports': <NoReportsPage attendance={data.attendance} profiles={data.profiles} />,
-    'monthly-detail': <WorkHoursSummary attendance={data.attendance} profiles={data.profiles} onReload={data.reload} />,
+    'monthly-detail': <WorkHoursSummary attendance={data.attendance} profiles={data.profiles} requests={data.requests} onReload={data.reload} />,
     'compare-shifts': <CompareShiftsPage shifts={data.shifts} attendance={data.attendance} profiles={data.profiles} />,
     'daily-attendance': <DailyAttendancePage attendance={data.attendance} />,
     'summary-export': <SummaryExportPage attendance={data.attendance} profiles={data.profiles} expenses={data.expenses} />,
@@ -138,7 +139,7 @@ function GenericPage({
     'by-project': <ByProjectPage shifts={data.shifts} attendance={data.attendance} />,
     'by-shift': <ByShiftPage shifts={data.shifts} />,
     'late-report': <LateReportPage attendance={data.attendance} profiles={data.profiles} />,
-    'daily-detail': <DailyDetailPage attendance={data.attendance} />,
+    'daily-detail': <DailyDetailPage attendance={data.attendance} requests={data.requests} />,
     'sign-reports': <SignReportsPage attendance={data.attendance} onReload={data.reload} />,
     'global-settings': <GlobalSettingsPage />,
     'add-manager': <AddManagerForm profiles={data.profiles} onReload={data.reload} />,
@@ -1845,24 +1846,27 @@ function MonthlySummaryPage({ attendance, profiles }: { attendance: Attendance[]
   );
 }
 
-function MonthlyDetailPage({ attendance, profiles }: { attendance: Attendance[]; profiles: Profile[] }) {
+function MonthlyDetailPage({ attendance, requests }: { attendance: Attendance[]; requests: EmployeeRequest[] }) {
   return (
     <Card>
       <SectionTitle title="דוח חודשי עם פירוט" icon={<FileText className="h-5 w-5" />} />
       <div className="overflow-x-auto">
         <table className="w-full text-right text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-4 py-2.5 font-medium">עובד</th><th className="px-4 py-2.5 font-medium">תאריך</th><th className="px-4 py-2.5 font-medium">כניסה</th><th className="px-4 py-2.5 font-medium">יציאה</th><th className="px-4 py-2.5 font-medium">שעות</th><th className="px-4 py-2.5 font-medium">סטטוס</th></tr></thead>
+          <thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-4 py-2.5 font-medium">עובד</th><th className="px-4 py-2.5 font-medium">תאריך</th><th className="px-4 py-2.5 font-medium">כניסה</th><th className="px-4 py-2.5 font-medium">יציאה</th><th className="px-4 py-2.5 font-medium">שעות</th><th className="px-4 py-2.5 font-medium">בקשת שינוי</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
-            {attendance.map((a) => (
+            {attendance.map((a) => {
+              const dayReqs = requestsForAttendanceDay(a.user_id, a.clock_in, requests);
+              return (
               <tr key={a.id} className="hover:bg-slate-50/60">
                 <td className="px-4 py-2.5 font-semibold text-slate-700">{a.profile?.full_name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-slate-500">{formatHebrewDate(a.clock_in)}</td>
                 <td className="px-4 py-2.5 text-slate-500">{formatTime(a.clock_in)}</td>
                 <td className="px-4 py-2.5 text-slate-500">{formatTime(a.clock_out) || '—'}</td>
                 <td className="px-4 py-2.5 text-slate-500">{a.clock_out ? hoursBetween(a.clock_in, a.clock_out) : '—'}</td>
-                <td className="px-4 py-2.5"><Badge color={a.status === 'approved' ? 'green' : a.status === 'rejected' ? 'red' : 'amber'}>{a.status === 'approved' ? 'אושר' : a.status === 'rejected' ? 'נדחה' : 'ממתין'}</Badge></td>
+                <td className="px-4 py-2.5 text-xs text-slate-600">{dayReqs.length ? formatChangeRequestsPlain(dayReqs) : ''}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -2038,8 +2042,8 @@ function LateReportPage({ attendance, profiles }: { attendance: Attendance[]; pr
   );
 }
 
-function DailyDetailPage({ attendance }: { attendance: Attendance[] }) {
-  return <MonthlyDetailPage attendance={attendance} profiles={[]} />;
+function DailyDetailPage({ attendance, requests }: { attendance: Attendance[]; requests: EmployeeRequest[] }) {
+  return <MonthlyDetailPage attendance={attendance} requests={requests} />;
 }
 
 function SignReportsPage({ attendance, onReload }: { attendance: Attendance[]; onReload: () => void }) {

@@ -20,7 +20,13 @@ import {
 import { Card, Avatar, Badge } from '@/components/ui';
 import { formatHebrewDate, formatTime } from '@/lib/format';
 import { supabase } from '@/lib/supabase';
-import type { Attendance, Profile } from '@/types';
+import type { Attendance, EmployeeRequest, Profile } from '@/types';
+import {
+  changeRequestDecision,
+  changeRequestDecisionLabel,
+  formatChangeRequestHtml,
+  requestsForAttendanceDay,
+} from '@/lib/monthlyReport';
 
 function toDateTimeLocal(iso: string | null): string {
   if (!iso) return '';
@@ -73,20 +79,61 @@ type EmpSummary = {
   records: Attendance[];
   totalHours: number;
   daysWorked: number;
-  approved: number;
-  pending: number;
+  changeRequestCount: number;
   missingClockOut: number;
 };
+
+function ChangeRequestBlock({
+  record,
+  requests,
+}: {
+  record: Attendance;
+  requests: EmployeeRequest[];
+}) {
+  const items = requestsForAttendanceDay(record.user_id, record.clock_in, requests);
+  if (items.length === 0) return null;
+  return (
+    <div className="max-w-xs space-y-1.5">
+      {items.map((req) => {
+        const kind = changeRequestDecision(req);
+        const color =
+          kind === 'rejected'
+            ? 'text-rose-600'
+            : kind === 'pending'
+              ? 'text-amber-600'
+              : kind === 'changed'
+                ? 'text-sky-700'
+                : 'text-emerald-700';
+        return (
+          <div key={req.id} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] leading-snug text-slate-600">
+            <p>
+              <span className="font-bold text-slate-700">בקשה: </span>
+              {req.type}
+              {req.description?.trim() ? ` — ${req.description.trim()}` : ''}
+            </p>
+            <p>
+              <span className="font-bold text-slate-700">החלטה: </span>
+              <span className={`font-bold ${color}`}>{changeRequestDecisionLabel(req)}</span>
+              {req.manager_note?.trim() ? ` — ${req.manager_note.trim()}` : ''}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 type ViewMode = 'calendar' | 'list';
 
 export default function WorkHoursSummary({
   attendance,
   profiles,
+  requests = [],
   onReload,
 }: {
   attendance: Attendance[];
   profiles: Profile[];
+  requests?: EmployeeRequest[];
   onReload: () => void;
 }) {
   const now = new Date();
@@ -138,13 +185,12 @@ export default function WorkHoursSummary({
         records,
         totalHours,
         daysWorked: records.length,
-        approved: records.filter((r) => r.status === 'approved').length,
-        pending: records.filter((r) => r.status === 'pending').length,
+        changeRequestCount: records.filter((r) => requestsForAttendanceDay(r.user_id, r.clock_in, requests).length > 0).length,
         missingClockOut: records.filter((r) => !r.clock_out).length,
       });
     });
     return result.sort((a, b) => b.totalHours - a.totalHours);
-  }, [filtered, employees]);
+  }, [filtered, employees, requests]);
 
   const grandTotalHours = summaries.reduce((s, e) => s + e.totalHours, 0);
   const grandTotalDays = summaries.reduce((s, e) => s + e.daysWorked, 0);
@@ -177,15 +223,15 @@ export default function WorkHoursSummary({
             <td class="out">${formatTime(r.clock_out) || '<span class=\"missing\">יציאה חסרה</span>'}</td>
             <td class="hours">${hours}</td>
             <td>${r.location_verified ? 'מאומת' : 'לא מאומת'}</td>
-            <td class="${r.status === 'approved' ? 'st-approved' : r.status === 'rejected' ? 'st-rejected' : 'st-pending'}">${r.status === 'approved' ? 'אושר' : r.status === 'rejected' ? 'נדחה' : 'ממתין'}</td>
+            <td class="change">${requestsForAttendanceDay(r.user_id, r.clock_in, requests).map(formatChangeRequestHtml).join('')}</td>
           </tr>`;
         }).join('');
         return `
         <div class="emp-block">
           <h3>${s.profile.full_name}</h3>
-          <p class="emp-meta">ימי עבודה: ${s.daysWorked} · סה"כ שעות: ${s.totalHours.toFixed(1)} · מאושרים: ${s.approved} · ממתינים: ${s.pending}</p>
+          <p class="emp-meta">ימי עבודה: ${s.daysWorked} · סה"כ שעות: ${s.totalHours.toFixed(1)}${s.changeRequestCount ? ` · בקשות שינוי: ${s.changeRequestCount}` : ''}</p>
           <table class="list-table">
-            <thead><tr><th>תאריך</th><th>יום</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th>מיקום</th><th>סטטוס</th></tr></thead>
+            <thead><tr><th>תאריך</th><th>יום</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th>מיקום</th><th>בקשת שינוי</th></tr></thead>
             <tbody>${rows}</tbody>
             <tfoot><tr><td colspan="3" class="name">סה"כ</td><td class="hours">${s.totalHours.toFixed(1)}</td><td colspan="3"></td></tr></tfoot>
           </table>
@@ -236,7 +282,7 @@ export default function WorkHoursSummary({
         return `
         <div class="emp-block">
           <h3>${s.profile.full_name}</h3>
-          <p class="emp-meta">ימי עבודה: ${s.daysWorked} · סה"כ שעות: ${s.totalHours.toFixed(1)} · מאושרים: ${s.approved} · ממתינים: ${s.pending}</p>
+          <p class="emp-meta">ימי עבודה: ${s.daysWorked} · סה"כ שעות: ${s.totalHours.toFixed(1)}${s.changeRequestCount ? ` · בקשות שינוי: ${s.changeRequestCount}` : ''}</p>
           <table class="cal-table">
             <thead><tr>${dayHeaders}</tr></thead>
             <tbody>${rows.join('')}</tbody>
@@ -291,9 +337,11 @@ export default function WorkHoursSummary({
         .list-table td.in { color: #059669; font-weight: 600; }
         .list-table td.out { color: #be123c; font-weight: 600; }
         .list-table td.hours { font-weight: 700; color: #0f766e; }
-        .list-table td.st-approved { color: #059669; font-weight: 700; }
-        .list-table td.st-rejected { color: #e11d48; font-weight: 700; }
-        .list-table td.st-pending { color: #d97706; font-weight: 700; }
+        .list-table td.change { font-size: 11px; color: #475569; }
+        .list-table .st-approved { color: #059669; font-weight: 700; }
+        .list-table .st-rejected { color: #e11d48; font-weight: 700; }
+        .list-table .st-pending { color: #d97706; font-weight: 700; }
+        .list-table .st-changed { color: #0369a1; font-weight: 700; }
         .list-table .missing { color: #e11d48; font-weight: 700; }
         .list-table tfoot td { border-top: 2px solid #cbd5e1; font-weight: 700; background: #f8fafc; }
       </style></head><body>
@@ -434,13 +482,13 @@ export default function WorkHoursSummary({
       ) : view === 'list' ? (
         <div className="space-y-5">
           {summaries.map((s) => (
-            <ListCard key={s.profile.id} summary={s} onReload={onReload} />
+            <ListCard key={s.profile.id} summary={s} requests={requests} onReload={onReload} />
           ))}
         </div>
       ) : (
         <div className="space-y-5">
           {summaries.map((s) => (
-            <CalendarCard key={s.profile.id} summary={s} monthKeyStr={selectedMonth} />
+            <CalendarCard key={s.profile.id} summary={s} monthKeyStr={selectedMonth} requests={requests} />
           ))}
         </div>
       )}
@@ -475,7 +523,7 @@ function KpiTile({
 }
 
 /* ---------- Calendar card ---------- */
-function CalendarCard({ summary, monthKeyStr }: { summary: EmpSummary; monthKeyStr: string }) {
+function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary; monthKeyStr: string; requests: EmployeeRequest[] }) {
   const [y, m] = monthKeyStr.split('-').map(Number);
   const firstDay = new Date(y, m - 1, 1);
   const daysInMonth = new Date(y, m, 0).getDate();
@@ -530,8 +578,7 @@ function CalendarCard({ summary, monthKeyStr }: { summary: EmpSummary; monthKeyS
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge color="green">{summary.approved} מאושר</Badge>
-          {summary.pending > 0 && <Badge color="amber">{summary.pending} ממתין</Badge>}
+          {summary.changeRequestCount > 0 && <Badge color="green">{summary.changeRequestCount} בקשות שינוי</Badge>}
           {summary.missingClockOut > 0 && <Badge color="red">{summary.missingClockOut} יציאה חסרה</Badge>}
         </div>
       </div>
@@ -584,17 +631,26 @@ function CalendarCard({ summary, monthKeyStr }: { summary: EmpSummary; monthKeyS
             const isWeekend = dow === 5 || dow === 6;
             const dayRecords = recordsByDay.get(day) ?? [];
             const hasRecords = dayRecords.length > 0;
-            const allApproved = hasRecords && dayRecords.every((r) => r.status === 'approved');
-            const hasRejected = dayRecords.some((r) => r.status === 'rejected');
             const hasMissing = dayRecords.some((r) => !r.clock_out);
+            const dayReqs = dayRecords.flatMap((r) => requestsForAttendanceDay(r.user_id, r.clock_in, requests));
+            const hasChange = dayReqs.length > 0;
+            const hasPendingReq = dayReqs.some((r) => r.status === 'pending');
+            const hasRejectedReq = dayReqs.some((r) => r.status === 'rejected');
+            const hasChangedReq = dayReqs.some((r) => changeRequestDecision(r) === 'changed');
 
             const statusColor = !hasRecords
               ? ''
-              : allApproved
-                ? 'border-emerald-300 bg-emerald-50/40'
-                : hasRejected
-                  ? 'border-rose-300 bg-rose-50/40'
-                  : 'border-amber-300 bg-amber-50/40';
+              : hasMissing
+                ? 'border-rose-300 bg-rose-50/40'
+                : hasPendingReq
+                  ? 'border-amber-300 bg-amber-50/40'
+                  : hasRejectedReq
+                    ? 'border-rose-300 bg-rose-50/40'
+                    : hasChangedReq
+                      ? 'border-sky-300 bg-sky-50/40'
+                      : hasChange
+                        ? 'border-emerald-300 bg-emerald-50/40'
+                        : 'border-slate-200 bg-white';
 
             const weekendBg = isWeekend
               ? dow === 6
@@ -620,10 +676,16 @@ function CalendarCard({ summary, monthKeyStr }: { summary: EmpSummary; monthKeyS
                   >
                     {day}
                   </span>
-                  {hasRecords && (
+                  {hasRecords && (hasChange || hasMissing) && (
                     <span
                       className={`h-2 w-2 rounded-full ${
-                        allApproved ? 'bg-emerald-500' : hasRejected ? 'bg-rose-500' : 'bg-amber-500'
+                        hasMissing || hasRejectedReq
+                          ? 'bg-rose-500'
+                          : hasPendingReq
+                            ? 'bg-amber-500'
+                            : hasChangedReq
+                              ? 'bg-sky-500'
+                              : 'bg-emerald-500'
                       }`}
                     />
                   )}
@@ -686,15 +748,7 @@ function CalendarCard({ summary, monthKeyStr }: { summary: EmpSummary; monthKeyS
                               <span className="font-bold text-brand-600">{parseHours(r.clock_in, r.clock_out).toFixed(1)}</span>
                             </div>
                           )}
-                          <div className="flex items-center justify-between gap-4 text-[11px]">
-                            <span className="text-slate-500">סטטוס</span>
-                            <span className={`font-bold ${
-                              r.status === 'approved' ? 'text-emerald-600'
-                                : r.status === 'rejected' ? 'text-rose-600' : 'text-amber-600'
-                            }`}>
-                              {r.status === 'approved' ? 'אושר' : r.status === 'rejected' ? 'נדחה' : 'ממתין'}
-                            </span>
-                          </div>
+                          <ChangeRequestBlock record={r} requests={requests} />
                           <div className="flex items-center justify-between gap-4 text-[11px]">
                             <span className="text-slate-500">מיקום</span>
                             <span className="font-medium text-slate-600">{r.location_verified ? 'מאומת' : 'לא מאומת'}</span>
@@ -718,10 +772,13 @@ function CalendarCard({ summary, monthKeyStr }: { summary: EmpSummary; monthKeyS
             <span className="h-3 w-3 rounded border border-rose-100 bg-rose-50/60" /> שבת
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> אושר
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> בקשה שאושרה
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> ממתין
+            <span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> בקשה ששונתה
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> בקשה ממתינה
           </span>
           <span className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> נדחה / יציאה חסרה
@@ -733,7 +790,7 @@ function CalendarCard({ summary, monthKeyStr }: { summary: EmpSummary; monthKeyS
 }
 
 /* ---------- List card (vertical day-by-day) ---------- */
-function ListCard({ summary, onReload }: { summary: EmpSummary; onReload: () => void }) {
+function ListCard({ summary, requests, onReload }: { summary: EmpSummary; requests: EmployeeRequest[]; onReload: () => void }) {
   const [editing, setEditing] = useState<Attendance | null>(null);
   // Group records by day
   const byDay = new Map<string, Attendance[]>();
@@ -763,8 +820,7 @@ function ListCard({ summary, onReload }: { summary: EmpSummary; onReload: () => 
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge color="green">{summary.approved} מאושר</Badge>
-          {summary.pending > 0 && <Badge color="amber">{summary.pending} ממתין</Badge>}
+          {summary.changeRequestCount > 0 && <Badge color="green">{summary.changeRequestCount} בקשות שינוי</Badge>}
           {summary.missingClockOut > 0 && <Badge color="red">{summary.missingClockOut} יציאה חסרה</Badge>}
         </div>
       </div>
@@ -776,8 +832,6 @@ function ListCard({ summary, onReload }: { summary: EmpSummary; onReload: () => 
           const dow = d.getDay();
           const isWeekend = dow === 5 || dow === 6;
           const dayHours = recs.reduce((s, r) => s + parseHours(r.clock_in, r.clock_out), 0);
-          const allApproved = recs.every((r) => r.status === 'approved');
-          const hasRejected = recs.some((r) => r.status === 'rejected');
           const hasMissing = recs.some((r) => !r.clock_out);
 
           return (
@@ -870,16 +924,7 @@ function ListCard({ summary, onReload }: { summary: EmpSummary; onReload: () => 
                       )}
                     </div>
 
-                    {/* Status badge */}
-                    <div className="mr-auto">
-                      {r.status === 'approved' ? (
-                        <Badge color="green">אושר</Badge>
-                      ) : r.status === 'rejected' ? (
-                        <Badge color="red">נדחה</Badge>
-                      ) : (
-                        <Badge color="amber">ממתין</Badge>
-                      )}
-                    </div>
+                    <ChangeRequestBlock record={r} requests={requests} />
 
                     {/* Edit button */}
                     <button
@@ -897,7 +942,7 @@ function ListCard({ summary, onReload }: { summary: EmpSummary; onReload: () => 
               <div className="shrink-0 text-left sm:w-20">
                 <div className="text-[10px] text-slate-400">סה״כ יומי</div>
                 <div className={`text-lg font-extrabold ${
-                  hasMissing ? 'text-rose-600' : allApproved ? 'text-emerald-600' : hasRejected ? 'text-rose-600' : 'text-amber-600'
+                  hasMissing ? 'text-rose-600' : 'text-brand-700'
                 }`}>{dayHours.toFixed(1)}</div>
                 <div className="text-[10px] text-slate-400">שעות</div>
               </div>

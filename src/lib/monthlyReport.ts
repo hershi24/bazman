@@ -1,4 +1,4 @@
-import type { Attendance, Profile } from '@/types';
+import type { Attendance, EmployeeRequest, Profile } from '@/types';
 import { formatHebrewDate, formatTime } from '@/lib/format';
 
 export const MONTH_NAMES = [
@@ -40,12 +40,81 @@ export type MonthlySummary = {
   pending: number;
   rejected: number;
   missingClockOut: number;
+  changeRequests: EmployeeRequest[];
 };
 
-export function computeMonthlySummary(records: Attendance[]): MonthlySummary {
+export function localDateKey(value: string | null | undefined): string {
+  if (!value) return '';
+  const raw = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function requestsForAttendanceDay(
+  userId: string,
+  clockIn: string | null,
+  requests: EmployeeRequest[],
+): EmployeeRequest[] {
+  const key = localDateKey(clockIn);
+  if (!key) return [];
+  return requests.filter((r) => r.user_id === userId && localDateKey(r.requested_date) === key);
+}
+
+export function changeRequestDecision(req: EmployeeRequest): 'pending' | 'approved' | 'rejected' | 'changed' {
+  if (req.status === 'pending') return 'pending';
+  if (req.status === 'rejected') return 'rejected';
+  if (req.manager_note?.trim()) return 'changed';
+  return 'approved';
+}
+
+export function changeRequestDecisionLabel(req: EmployeeRequest): string {
+  const d = changeRequestDecision(req);
+  if (d === 'pending') return 'ממתין';
+  if (d === 'rejected') return 'נדחה';
+  if (d === 'changed') return 'שונה';
+  return 'אושר';
+}
+
+export function formatChangeRequestPlain(req: EmployeeRequest): string {
+  const asked = req.description?.trim() ? `${req.type} — ${req.description.trim()}` : req.type;
+  const decision = changeRequestDecisionLabel(req);
+  const note = req.manager_note?.trim();
+  if (note) return `בקשה: ${asked}. החלטה: ${decision} — ${note}`;
+  return `בקשה: ${asked}. החלטה: ${decision}`;
+}
+
+export function formatChangeRequestsPlain(reqs: EmployeeRequest[]): string {
+  if (reqs.length === 0) return '';
+  return reqs.map(formatChangeRequestPlain).join(' | ');
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export function formatChangeRequestHtml(req: EmployeeRequest): string {
+  const asked = escapeHtml(req.description?.trim() ? `${req.type} — ${req.description.trim()}` : req.type);
+  const decision = changeRequestDecisionLabel(req);
+  const kind = changeRequestDecision(req);
+  const cls =
+    kind === 'rejected' ? 'st-rejected' : kind === 'pending' ? 'st-pending' : kind === 'changed' ? 'st-changed' : 'st-approved';
+  const note = req.manager_note?.trim();
+  const decisionHtml = note ? `${escapeHtml(decision)} — ${escapeHtml(note)}` : escapeHtml(decision);
+  return `<div class="chg"><div>בקשה: ${asked}</div><div>החלטה: <span class="${cls}">${decisionHtml}</span></div></div>`;
+}
+
+export function computeMonthlySummary(records: Attendance[], requests: EmployeeRequest[] = []): MonthlySummary {
   const sorted = [...records].sort(
     (a, b) => new Date(a.clock_in!).getTime() - new Date(b.clock_in!).getTime(),
   );
+  const userIds = new Set(sorted.map((r) => r.user_id));
+  const changeRequests = requests.filter((r) => userIds.has(r.user_id) && localDateKey(r.requested_date));
   return {
     records: sorted,
     totalHours: sorted.reduce((sum, r) => sum + parseHours(r.clock_in, r.clock_out), 0),
@@ -54,22 +123,19 @@ export function computeMonthlySummary(records: Attendance[]): MonthlySummary {
     pending: sorted.filter((r) => r.status === 'pending').length,
     rejected: sorted.filter((r) => r.status === 'rejected').length,
     missingClockOut: sorted.filter((r) => !r.clock_out).length,
+    changeRequests,
   };
 }
 
-function statusLabel(status: string): string {
-  if (status === 'approved') return 'אושר';
-  if (status === 'rejected') return 'נדחה';
-  return 'ממתין';
-}
-
-function buildReportRows(records: Attendance[]): string {
+function buildReportRows(records: Attendance[], requests: EmployeeRequest[]): string {
   return records
     .map((r) => {
       const d = new Date(r.clock_in!);
       const dow = d.getDay();
       const isWeekend = dow >= 5;
       const hours = r.clock_out ? parseHours(r.clock_in, r.clock_out).toFixed(1) : '—';
+      const dayReqs = requestsForAttendanceDay(r.user_id, r.clock_in, requests);
+      const changeCell = dayReqs.length > 0 ? dayReqs.map(formatChangeRequestHtml).join('') : '';
       return `<tr class="${isWeekend ? 'weekend' : ''}">
         <td class="date">${formatHebrewDate(r.clock_in)}</td>
         <td class="${isWeekend ? 'weekend-day' : ''}">${DAY_NAMES_LONG[dow]}</td>
@@ -77,7 +143,7 @@ function buildReportRows(records: Attendance[]): string {
         <td class="out">${formatTime(r.clock_out) || '<span class="missing">יציאה חסרה</span>'}</td>
         <td class="hours">${hours}</td>
         <td>${r.location_verified || r.qr_verified ? 'מאומת' : 'לא מאומת'}</td>
-        <td class="${r.status === 'approved' ? 'st-approved' : r.status === 'rejected' ? 'st-rejected' : 'st-pending'}">${statusLabel(r.status)}</td>
+        <td class="change">${changeCell}</td>
       </tr>`;
     })
     .join('');
@@ -89,7 +155,7 @@ export function generateEmployeeMonthlyReportHtml(
   summary: MonthlySummary,
 ): string {
   const title = `דוח נוכחות חודשי - ${profile.full_name} - ${monthLabel(selectedMonth)}`;
-  const rows = buildReportRows(summary.records);
+  const rows = buildReportRows(summary.records, summary.changeRequests);
   const avgHours = summary.daysWorked > 0 ? (summary.totalHours / summary.daysWorked).toFixed(1) : '—';
 
   return `<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>${title}</title>
@@ -115,9 +181,12 @@ export function generateEmployeeMonthlyReportHtml(
       td.weekend-day { color: #b45309; font-weight: 700; }
       td.in { color: #059669; font-weight: 600; }
       td.out { color: #be123c; font-weight: 600; }
-      td.st-approved { color: #059669; font-weight: 700; }
-      td.st-rejected { color: #e11d48; font-weight: 700; }
-      td.st-pending { color: #d97706; font-weight: 700; }
+      td.change { font-size: 11px; color: #475569; max-width: 220px; }
+      .chg { margin-bottom: 4px; }
+      .st-approved { color: #059669; font-weight: 700; }
+      .st-rejected { color: #e11d48; font-weight: 700; }
+      .st-pending { color: #d97706; font-weight: 700; }
+      .st-changed { color: #0369a1; font-weight: 700; }
       .missing { color: #e11d48; font-weight: 700; }
       .sign-area { margin-top: 40px; display: flex; justify-content: space-between; }
       .sign-box { text-align: center; }
@@ -139,11 +208,11 @@ export function generateEmployeeMonthlyReportHtml(
         <div class="summary-item"><div class="val">${summary.daysWorked}</div><div class="lbl">ימי עבודה</div></div>
         <div class="summary-item"><div class="val">${summary.totalHours.toFixed(1)}</div><div class="lbl">סה"כ שעות</div></div>
         <div class="summary-item"><div class="val">${avgHours}</div><div class="lbl">ממוצע יומי</div></div>
-        <div class="summary-item"><div class="val">${summary.approved}</div><div class="lbl">מאושרים</div></div>
+        ${summary.changeRequests.length > 0 ? `<div class="summary-item"><div class="val">${summary.changeRequests.length}</div><div class="lbl">בקשות שינוי</div></div>` : ''}
         ${summary.missingClockOut > 0 ? `<div class="summary-item"><div class="val" style="color:#e11d48">${summary.missingClockOut}</div><div class="lbl">יציאות חסרות</div></div>` : ''}
       </div>
       <table>
-        <thead><tr><th>תאריך</th><th>יום</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th>אימות</th><th>סטטוס</th></tr></thead>
+        <thead><tr><th>תאריך</th><th>יום</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th>אימות</th><th>בקשת שינוי</th></tr></thead>
         <tbody>${rows}</tbody>
         <tfoot><tr><td colspan="4">סה"כ חודשי</td><td>${summary.totalHours.toFixed(1)} שעות</td><td colspan="2"></td></tr></tfoot>
       </table>
@@ -191,10 +260,11 @@ export function downloadMonthlyReportCsv(
   selectedMonth: string,
   summary: MonthlySummary,
 ): void {
-  const header = ['תאריך', 'יום', 'כניסה', 'יציאה', 'שעות', 'אימות', 'סטטוס'];
+  const header = ['תאריך', 'יום', 'כניסה', 'יציאה', 'שעות', 'אימות', 'בקשת שינוי'];
   const rows = summary.records.map((r) => {
     const d = new Date(r.clock_in!);
     const hours = r.clock_out ? parseHours(r.clock_in, r.clock_out).toFixed(1) : '';
+    const dayReqs = requestsForAttendanceDay(r.user_id, r.clock_in, summary.changeRequests);
     return [
       formatHebrewDate(r.clock_in),
       DAY_NAMES_LONG[d.getDay()],
@@ -202,7 +272,7 @@ export function downloadMonthlyReportCsv(
       r.clock_out ? formatTime(r.clock_out) : 'יציאה חסרה',
       hours,
       r.location_verified || r.qr_verified ? 'מאומת' : 'לא מאומת',
-      statusLabel(r.status),
+      formatChangeRequestsPlain(dayReqs),
     ].map(csvEscape);
   });
 
