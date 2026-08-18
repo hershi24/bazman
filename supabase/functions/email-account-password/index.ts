@@ -14,36 +14,58 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-async function sendMail(to: string, subject: string, text: string, html: string) {
-  const errors: string[] = [];
-  const resendKey = Deno.env.get('RESEND_API_KEY');
-  if (resendKey) {
-    const from = Deno.env.get('MAIL_FROM') || 'BeZman <onboarding@resend.dev>';
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ from, to, subject, html, text }),
-    });
-    if (res.ok) return;
-    errors.push(`Resend: ${await res.text()}`);
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function fetchWithTimeout(url: string, init: RequestInit, ms = 12000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
+async function findAuthUser(email: string) {
+  const adminApi = admin.auth.admin as typeof admin.auth.admin & {
+    getUserByEmail?: (value: string) => Promise<{
+      data: { user: { id: string; email?: string | null } | null };
+      error: { message: string } | null;
+    }>;
+  };
+  if (typeof adminApi.getUserByEmail === 'function') {
+    const { data, error } = await adminApi.getUserByEmail(email);
+    if (!error && data?.user) return data.user;
   }
 
-  const fs = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(to)}`, {
+  for (let page = 1; page <= 10; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw new Error(error.message);
+    const user = data.users.find((u) => (u.email ?? '').toLowerCase() === email);
+    if (user) return user;
+    if (data.users.length < 200) break;
+  }
+  return null;
+}
+
+async function sendRecoveryViaSmtp(email: string, redirectTo: string) {
+  const body: Record<string, string> = { email };
+  if (redirectTo) body.redirect_to = redirectTo;
+
+  const res = await fetchWithTimeout(`${SUPABASE_URL}/auth/v1/recover`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({
-      _subject: subject,
-      _template: 'box',
-      _captcha: 'false',
-      message: text,
-    }),
+    headers: {
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${ANON_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
   });
-  if (fs.ok) return;
-  errors.push(`FormSubmit: ${await fs.text()}`);
-  throw new Error(errors.join(' | ') || 'שליחת המייל נכשלה');
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(text || 'שליחת מייל האיפוס דרך SMTP נכשלה.');
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -54,74 +76,29 @@ Deno.serve(async (req: Request) => {
   try {
     const body = await req.json();
     const email = String(body.email ?? '').trim().toLowerCase();
-    const redirectTo = String(body.redirectTo ?? '').trim() || SUPABASE_URL.replace('.supabase.co', '');
+    const redirectTo = String(body.redirectTo ?? '').trim();
     if (!email || !email.includes('@')) {
-      return new Response(JSON.stringify({ error: 'נא להזין אימייל.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ error: 'נא להזין אימייל.' }, 400);
     }
 
-    const { data: list, error: listErr } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    if (listErr) {
-      return new Response(JSON.stringify({ error: listErr.message }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-    const user = list?.users.find((u) => (u.email ?? '').toLowerCase() === email);
+    const user = await findAuthUser(email);
     if (!user) {
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return json({ success: true });
     }
 
     await admin.auth.admin.updateUserById(user.id, { email_confirm: true });
-
-    const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
-      type: 'recovery',
-      email,
-      options: { redirectTo },
-    });
-    if (linkErr || !linkData?.properties?.action_link) {
-      return new Response(JSON.stringify({ error: linkErr?.message ?? 'לא הצלחנו ליצור קישור איפוס.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const actionLink = linkData.properties.action_link;
-    const subject = 'איפוס סיסמה במערכת BeZman';
-    const text = `שלום,\n\nלחץ על הקישור כדי לבחור סיסמה חדשה למערכת BeZman:\n\n${actionLink}\n\nאם לא ביקשת איפוס סיסמה, אפשר להתעלם מהמייל.`;
-    const html = `<p>שלום,</p><p>לחץ על הכפתור כדי לבחור סיסמה חדשה במערכת <strong>BeZman</strong>:</p><p><a href="${actionLink}" style="display:inline-block;background:#0f766e;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">איפוס סיסמה</a></p><p style="font-size:12px;color:#64748b">אם הכפתור לא עובד, העתק את הקישור:<br>${actionLink}</p>`;
-
-    try {
-      await sendMail(email, subject, text, html);
-    } catch {
-      const recover = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
-        method: 'POST',
-        headers: {
-          apikey: ANON_KEY,
-          Authorization: `Bearer ${ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, redirect_to: redirectTo }),
-      });
-      if (!recover.ok) {
-        return new Response(JSON.stringify({ error: 'לא הצלחנו לשלוח את המייל. בדוק ספאם או הגדר SMTP ב-Supabase.' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-    }
-
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    await sendRecoveryViaSmtp(email, redirectTo);
+    return json({ success: true });
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    const message = err instanceof Error ? err.message : String(err);
+    const aborted = /abort/i.test(message);
+    return json(
+      {
+        error: aborted
+          ? 'שליחת המייל ארכה יותר מדי. נסה שוב.'
+          : message || 'שליחת המייל נכשלה.',
+      },
+      500,
+    );
   }
 });

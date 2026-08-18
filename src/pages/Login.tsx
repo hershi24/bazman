@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Clock, LogIn, Loader2, Fingerprint, MapPin, QrCode, Mail, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { supabase } from '@/lib/supabase';
 import { emailAccountPassword } from '@/lib/updateAuth';
+
 export default function Login() {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
@@ -27,7 +27,7 @@ export default function Login() {
     if (type === 'email_change') {
       setInfo('האימייל אושר. אפשר להתחבר עם הכתובת החדשה.');
     } else if (errCode === 'otp_expired' || hash.get('error') === 'access_denied') {
-      setError('קישור האישור אינו תקף. האימייל מתעדכן ישירות בהגדרות, בלי קישור.');
+      setError('הקישור פג תוקף. אם ביקשת איפוס סיסמה, שלח קישור חדש.');
     }
     if (type || errCode || hash.get('error')) {
       window.history.replaceState({}, '', window.location.pathname);
@@ -52,27 +52,21 @@ export default function Login() {
       return;
     }
     setResetBusy(true);
-    const viaFn = await emailAccountPassword(addr, window.location.origin);
-    if (!viaFn.error) {
-      setResetBusy(false);
+    try {
+      const { error } = await emailAccountPassword(addr, window.location.origin);
+      if (error) {
+        setResetMsg({ type: 'err', text: error });
+        return;
+      }
       setResetMsg({
         type: 'ok',
-        text: 'אם החשבון קיים, נשלח מייל. בדוק גם בספאם. אם אין מייל, צריך להפעיל SMTP ב-Supabase (Authentication → Emails).',
+        text: 'אם החשבון קיים, נשלח קישור לאימייל. בדוק גם בספאם.',
       });
-      return;
+    } catch {
+      setResetMsg({ type: 'err', text: 'שליחת המייל נכשלה. נסה שוב.' });
+    } finally {
+      setResetBusy(false);
     }
-    const { error } = await supabase.auth.resetPasswordForEmail(addr, {
-      redirectTo: window.location.origin,
-    });
-    setResetBusy(false);
-    if (error) {
-      setResetMsg({ type: 'err', text: viaFn.error || error.message });
-      return;
-    }
-    setResetMsg({
-      type: 'ok',
-      text: 'אם החשבון קיים, נשלח מייל. בדוק גם בספאם. אם אין מייל, צריך להפעיל SMTP ב-Supabase (Authentication → Emails).',
-    });
   }
 
   return (
