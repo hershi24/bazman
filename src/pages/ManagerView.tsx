@@ -1228,6 +1228,10 @@ function EmployeeReportsPage({ attendance, profiles, onReload }: { attendance: A
   return (
     <Card>
       <SectionTitle title="ניהול דיווחים לעובד" icon={<ClipboardList className="h-5 w-5" />} />
+      <p className="border-b border-slate-100 px-5 py-3 text-sm text-slate-500">
+        כאן מתקנים או מוחקים <span className="font-semibold text-slate-700">דיווח נוכחות</span> (כניסה/יציאה) של עובד.
+        המחיקה מוחקת רק את השורה הזו — העובד נשאר במערכת.
+      </p>
       <div className="border-b border-slate-100 p-4">
         <select value={selected} onChange={(e) => setSelected(e.target.value)} className="w-full max-w-xs rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none focus:border-brand-500 focus:bg-white">
           <option value="">כל העובדים</option>
@@ -1237,7 +1241,7 @@ function EmployeeReportsPage({ attendance, profiles, onReload }: { attendance: A
       <div className="overflow-x-auto">
         <table className="w-full text-right text-sm">
           <thead className="bg-slate-50 text-xs text-slate-500">
-            <tr><th className="px-4 py-2.5 font-medium">עובד</th><th className="px-4 py-2.5 font-medium">כניסה</th><th className="px-4 py-2.5 font-medium">יציאה</th><th className="px-4 py-2.5 font-medium">שעות</th><th className="px-4 py-2.5 font-medium">סטטוס</th><th className="px-4 py-2.5 font-medium">פעולות</th></tr>
+            <tr><th className="px-4 py-2.5 font-medium">עובד</th><th className="px-4 py-2.5 font-medium">תאריך</th><th className="px-4 py-2.5 font-medium">כניסה</th><th className="px-4 py-2.5 font-medium">יציאה</th><th className="px-4 py-2.5 font-medium">שעות</th><th className="px-4 py-2.5 font-medium">פעולות</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {empAtt.length === 0 && (
@@ -1246,16 +1250,16 @@ function EmployeeReportsPage({ attendance, profiles, onReload }: { attendance: A
             {empAtt.map((a) => (
               <tr key={a.id} className="hover:bg-slate-50/60">
                 <td className="px-4 py-2.5 font-semibold text-slate-700">{a.profile?.full_name ?? '—'}</td>
+                <td className="px-4 py-2.5 text-slate-500">{formatHebrewDate(a.clock_in)}</td>
                 <td className="px-4 py-2.5 text-slate-500">{formatTime(a.clock_in)}</td>
                 <td className="px-4 py-2.5 text-slate-500">{formatTime(a.clock_out) || '—'}</td>
                 <td className="px-4 py-2.5 text-slate-500">{a.clock_out ? hoursBetween(a.clock_in, a.clock_out) : '—'}</td>
-                <td className="px-4 py-2.5"><Badge color={a.status === 'approved' ? 'green' : a.status === 'rejected' ? 'red' : 'amber'}>{a.status === 'approved' ? 'אושר' : a.status === 'rejected' ? 'נדחה' : 'ממתין'}</Badge></td>
                 <td className="px-4 py-2.5">
                   <div className="flex items-center gap-1">
-                    <button onClick={() => setEditRow(a)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition hover:bg-brand-100 hover:text-brand-600" title="ערוך">
+                    <button onClick={() => setEditRow(a)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition hover:bg-brand-100 hover:text-brand-600" title="ערוך דיווח">
                       <Pencil className="h-4 w-4" />
                     </button>
-                    <button onClick={() => setDeleteRow(a)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition hover:bg-rose-100 hover:text-rose-600" title="מחק">
+                    <button onClick={() => setDeleteRow(a)} className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition hover:bg-rose-100 hover:text-rose-600" title="מחק דיווח">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
@@ -1277,6 +1281,18 @@ function EmployeeReportsPage({ attendance, profiles, onReload }: { attendance: A
       {deleteRow && (
         <ConfirmDeleteModal
           name={`הדיווח של ${deleteRow.profile?.full_name ?? ''} מ-${formatHebrewDate(deleteRow.clock_in)}`}
+          title="מחיקת דיווח נוכחות"
+          confirmLabel="מחק דיווח"
+          description={
+            <>
+              האם למחוק את דיווח הנוכחות של{' '}
+              <span className="font-bold text-slate-700">{deleteRow.profile?.full_name ?? 'העובד'}</span>
+              {' '}מתאריך {formatHebrewDate(deleteRow.clock_in)}
+              {formatTime(deleteRow.clock_in) ? ` (${formatTime(deleteRow.clock_in)}${formatTime(deleteRow.clock_out) ? `–${formatTime(deleteRow.clock_out)}` : ''})` : ''}?
+              <br />
+              יימחק רק הדיווח הזה. העובד עצמו לא יימחק מהמערכת.
+            </>
+          }
           onCancel={() => setDeleteRow(null)}
           onConfirm={() => handleDelete(deleteRow.id)}
         />
@@ -1294,7 +1310,6 @@ function EditAttendanceModal({ row, onClose, onSaved }: { row: Attendance; onClo
   };
   const [clockIn, setClockIn] = useState(toLocalInput(row.clock_in));
   const [clockOut, setClockOut] = useState(toLocalInput(row.clock_out));
-  const [status, setStatus] = useState(row.status ?? 'pending');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1304,7 +1319,6 @@ function EditAttendanceModal({ row, onClose, onSaved }: { row: Attendance; onClo
     const payload: Record<string, unknown> = {
       clock_in: new Date(clockIn).toISOString(),
       clock_out: clockOut ? new Date(clockOut).toISOString() : null,
-      status,
     };
     const { error } = await supabase.from('attendance').update(payload).eq('id', row.id);
     if (error) { setErr(error.message); setBusy(false); return; }
@@ -1322,14 +1336,6 @@ function EditAttendanceModal({ row, onClose, onSaved }: { row: Attendance; onClo
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">שעת יציאה</label>
           <input type="datetime-local" value={clockOut} onChange={(e) => setClockOut(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none focus:border-brand-500 focus:bg-white" />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">סטטוס</label>
-          <select value={status} onChange={(e) => setStatus(e.target.value as Attendance['status'])} className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none focus:border-brand-500 focus:bg-white">
-            <option value="pending">ממתין</option>
-            <option value="approved">אושר</option>
-            <option value="rejected">נדחה</option>
-          </select>
         </div>
         {err && <p className="text-sm text-rose-600">{err}</p>}
         <div className="flex justify-end gap-2 pt-2">

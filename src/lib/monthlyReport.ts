@@ -1,5 +1,6 @@
 import type { Attendance, EmployeeRequest, Profile } from '@/types';
 import { formatHebrewDate, formatTime } from '@/lib/format';
+import { hoursAdjustmentSummary, parseHoursAdjustment } from '@/lib/hoursAdjustment';
 
 export const MONTH_NAMES = [
   'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
@@ -78,7 +79,12 @@ export function changeRequestDecisionLabel(req: EmployeeRequest): string {
 }
 
 export function formatChangeRequestPlain(req: EmployeeRequest): string {
-  const asked = req.description?.trim() ? `${req.type} — ${req.description.trim()}` : req.type;
+  const adj = parseHoursAdjustment(req.description);
+  const asked = adj
+    ? `${req.type} — ${hoursAdjustmentSummary(adj)}${adj.note ? ` (${adj.note})` : ''}`
+    : req.description?.trim()
+      ? `${req.type} — ${req.description.trim()}`
+      : req.type;
   const decision = changeRequestDecisionLabel(req);
   const note = req.manager_note?.trim();
   if (note) return `בקשה: ${asked}. החלטה: ${decision} — ${note}`;
@@ -99,7 +105,13 @@ function escapeHtml(s: string): string {
 }
 
 export function formatChangeRequestHtml(req: EmployeeRequest): string {
-  const asked = escapeHtml(req.description?.trim() ? `${req.type} — ${req.description.trim()}` : req.type);
+  const adj = parseHoursAdjustment(req.description);
+  const askedRaw = adj
+    ? `${req.type} — ${hoursAdjustmentSummary(adj)}${adj.note ? ` (${adj.note})` : ''}`
+    : req.description?.trim()
+      ? `${req.type} — ${req.description.trim()}`
+      : req.type;
+  const asked = escapeHtml(askedRaw);
   const decision = changeRequestDecisionLabel(req);
   const kind = changeRequestDecision(req);
   const cls =

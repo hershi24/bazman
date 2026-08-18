@@ -39,6 +39,13 @@ import {
   requestsForAttendanceDay,
   formatChangeRequestsPlain,
 } from '@/lib/monthlyReport';
+import {
+  formatHoursAdjustmentPayload,
+  HOURS_ADJUST_TYPE,
+  hoursAdjustmentSummary,
+  isHoursAdjustmentType,
+  parseHoursAdjustment,
+} from '@/lib/hoursAdjustment';
 import { Avatar, Badge, Card, SectionTitle } from '@/components/ui';
 import jsQR from 'jsqr';
 
@@ -706,12 +713,18 @@ function ClockPanel() {
 /* ---------------- Request panel ---------------- */
 function RequestPanel() {
   const { profile } = useAuth();
-  const [type, setType] = useState('התאמת שעות');
+  const [type, setType] = useState(HOURS_ADJUST_TYPE);
   const [description, setDescription] = useState('');
   const [date, setDate] = useState('');
+  const [wantIn, setWantIn] = useState(true);
+  const [wantOut, setWantOut] = useState(true);
+  const [clockIn, setClockIn] = useState('');
+  const [clockOut, setClockOut] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [myRequests, setMyRequests] = useState<EmployeeRequest[]>([]);
+
+  const hoursMode = isHoursAdjustmentType(type);
 
   async function loadMine() {
     const { data } = await supabase
@@ -728,14 +741,68 @@ function RequestPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!hoursMode || !date || !profile) return;
+    (async () => {
+      const [y, m, d] = date.split('-').map(Number);
+      const start = new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
+      const end = new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
+      const { data } = await supabase
+        .from('attendance')
+        .select('clock_in, clock_out')
+        .eq('user_id', profile.id)
+        .gte('clock_in', start)
+        .lte('clock_in', end)
+        .order('clock_in', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (!data) return;
+      const toTime = (iso: string | null) => {
+        if (!iso) return '';
+        const dt = new Date(iso);
+        if (isNaN(dt.getTime())) return '';
+        return `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+      };
+      if (data.clock_in) setClockIn(toTime(data.clock_in));
+      if (data.clock_out) setClockOut(toTime(data.clock_out));
+    })();
+  }, [hoursMode, date, profile]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setMsg(null);
+
+    let payloadDescription = description.trim() || null;
+    if (hoursMode) {
+      if (!date) {
+        setBusy(false);
+        setMsg({ type: 'err', text: 'נא לבחור את התאריך שצריך להתאים.' });
+        return;
+      }
+      if ((!wantIn || !clockIn) && (!wantOut || !clockOut)) {
+        setBusy(false);
+        setMsg({ type: 'err', text: 'נא לבחור כניסה ו/או יציאה ולמלא שעה.' });
+        return;
+      }
+      const inTime = wantIn ? clockIn : '';
+      const outTime = wantOut ? clockOut : '';
+      if (inTime && outTime && outTime <= inTime) {
+        setBusy(false);
+        setMsg({ type: 'err', text: 'שעת היציאה צריכה להיות אחרי שעת הכניסה.' });
+        return;
+      }
+      payloadDescription = formatHoursAdjustmentPayload({
+        clockIn: inTime || null,
+        clockOut: outTime || null,
+        note: description.trim(),
+      });
+    }
+
     const { error } = await supabase.from('requests').insert({
       user_id: profile!.id,
       type,
-      description: description.trim() || null,
+      description: payloadDescription,
       requested_date: date || null,
       status: 'pending',
     });
@@ -746,11 +813,15 @@ function RequestPanel() {
       setMsg({ type: 'ok', text: 'הבקשה נשלחה למנהל בהצלחה!' });
       setDescription('');
       setDate('');
+      setClockIn('');
+      setClockOut('');
+      setWantIn(true);
+      setWantOut(true);
       loadMine();
     }
   }
 
-  const types = ['התאמת שעות', 'חופשה', 'מחלה', 'שעות נוספות'];
+  const types = [HOURS_ADJUST_TYPE, 'חופשה', 'מחלה', 'שעות נוספות'];
 
   return (
     <div className="space-y-5">
@@ -777,22 +848,63 @@ function RequestPanel() {
             </div>
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">תאריך מבוקש</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              תאריך מבוקש {hoursMode ? <span className="text-rose-500">*</span> : null}
+            </label>
             <input
               type="date"
+              required={hoursMode}
               value={date}
               onChange={(e) => setDate(e.target.value)}
               className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
             />
           </div>
+          {hoursMode && (
+            <div className="space-y-3 rounded-2xl border border-brand-100 bg-brand-50/50 p-4">
+              <p className="text-sm font-medium text-slate-700">איזו שעה לתקן?</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className={`rounded-xl border bg-white p-3 ${wantIn ? 'border-brand-400' : 'border-slate-200'}`}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <input type="checkbox" checked={wantIn} onChange={(e) => setWantIn(e.target.checked)} className="h-4 w-4 accent-brand-600" />
+                    <span className="text-sm font-bold text-slate-700">כניסה</span>
+                  </div>
+                  <input
+                    type="time"
+                    dir="ltr"
+                    disabled={!wantIn}
+                    value={clockIn}
+                    onChange={(e) => setClockIn(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none focus:border-brand-500 disabled:opacity-40"
+                  />
+                </label>
+                <label className={`rounded-xl border bg-white p-3 ${wantOut ? 'border-brand-400' : 'border-slate-200'}`}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <input type="checkbox" checked={wantOut} onChange={(e) => setWantOut(e.target.checked)} className="h-4 w-4 accent-brand-600" />
+                    <span className="text-sm font-bold text-slate-700">יציאה</span>
+                  </div>
+                  <input
+                    type="time"
+                    dir="ltr"
+                    disabled={!wantOut}
+                    value={clockOut}
+                    onChange={(e) => setClockOut(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none focus:border-brand-500 disabled:opacity-40"
+                  />
+                </label>
+              </div>
+              <p className="text-xs text-slate-500">אחרי שהמנהל יאשר, השעות בדיווח יתעדכנו אוטומטית.</p>
+            </div>
+          )}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">תיאור הבקשה</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              {hoursMode ? 'הערה (לא חובה)' : 'תיאור הבקשה'}
+            </label>
             <textarea
-              required
-              rows={4}
+              required={!hoursMode}
+              rows={hoursMode ? 2 : 4}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="פרט את הבקשה..."
+              placeholder={hoursMode ? 'למשל: שכחתי לדווח יציאה...' : 'פרט את הבקשה...'}
               className="w-full resize-none rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
             />
           </div>
@@ -823,7 +935,9 @@ function RequestPanel() {
           {myRequests.length === 0 && (
             <p className="px-5 py-8 text-center text-sm text-slate-400">אין בקשות עדיין</p>
           )}
-          {myRequests.map((r) => (
+          {myRequests.map((r) => {
+            const adj = isHoursAdjustmentType(r.type) ? parseHoursAdjustment(r.description) : null;
+            return (
             <div key={r.id} className="flex items-center justify-between gap-3 px-5 py-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -834,7 +948,12 @@ function RequestPanel() {
                     {r.status === 'approved' ? 'אושר' : r.status === 'rejected' ? 'נדחה' : 'ממתין'}
                   </Badge>
                 </div>
-                <p className="mt-0.5 truncate text-xs text-slate-400">{r.description || '—'}</p>
+                {adj ? (
+                  <p className="mt-0.5 text-xs font-medium text-slate-600">{hoursAdjustmentSummary(adj)}</p>
+                ) : (
+                  <p className="mt-0.5 truncate text-xs text-slate-400">{r.description || '—'}</p>
+                )}
+                {adj?.note && <p className="mt-0.5 truncate text-xs text-slate-400">{adj.note}</p>}
                 {r.manager_note && <p className="mt-1 text-xs text-brand-600">תגובת מנהל: {r.manager_note}</p>}
               </div>
               <div className="flex shrink-0 items-center gap-1 text-xs text-slate-400">
@@ -842,7 +961,8 @@ function RequestPanel() {
                 {formatHebrewDate(r.requested_date)}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
     </div>

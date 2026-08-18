@@ -4,6 +4,12 @@ import { supabase } from '@/lib/supabase';
 import { Avatar, Badge, Card, SectionTitle } from '@/components/ui';
 import { formatHebrewDate } from '@/lib/format';
 import type { EmployeeRequest, Attendance } from '@/types';
+import {
+  applyHoursAdjustment,
+  hoursAdjustmentSummary,
+  isHoursAdjustmentType,
+  parseHoursAdjustment,
+} from '@/lib/hoursAdjustment';
 
 export function RequestsTable({
   requests,
@@ -41,13 +47,26 @@ export function RequestsTable({
   async function updateStatus(id: string, status: 'approved' | 'rejected') {
     setPendingId(id);
     const req = requests.find((r) => r.id === id);
+
+    if (status === 'approved' && req && isHoursAdjustmentType(req.type) && parseHoursAdjustment(req.description)) {
+      const applied = await applyHoursAdjustment(req);
+      if (applied.error) {
+        setPendingId(null);
+        flashToast('err', applied.error);
+        return;
+      }
+    }
+
     const { error } = await supabase.from('requests').update({ status }).eq('id', id);
 
     if (!error && req) {
       await supabase.from('notifications').insert({
         user_id: req.user_id,
         title: status === 'approved' ? 'הבקשה שלך אושרה' : 'הבקשה שלך נדחתה',
-        body: (status === 'approved' ? 'אושרה' : 'נדחתה') + ' — ' + req.type,
+        body:
+          status === 'approved' && isHoursAdjustmentType(req.type)
+            ? 'אושרה והשעות עודכנו בדיווח — ' + req.type
+            : (status === 'approved' ? 'אושרה' : 'נדחתה') + ' — ' + req.type,
         read: false,
       });
     }
@@ -58,7 +77,14 @@ export function RequestsTable({
     if (error) {
       flashToast('err', 'שגיאה בעדכון הבקשה');
     } else {
-      flashToast('ok', status === 'approved' ? 'הבקשה אושרה' : 'הבקשה נדחתה');
+      flashToast(
+        'ok',
+        status === 'approved'
+          ? isHoursAdjustmentType(req?.type ?? '')
+            ? 'הבקשה אושרה והשעות עודכנו'
+            : 'הבקשה אושרה'
+          : 'הבקשה נדחתה',
+      );
     }
   }
 
@@ -152,8 +178,19 @@ export function RequestsTable({
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-slate-600">{r.type}</td>
-                  <td className="hidden max-w-[14rem] px-4 py-2.5 text-slate-500 sm:table-cell">
-                    <div className="truncate">{r.description || '—'}</div>
+                  <td className="hidden max-w-[16rem] px-4 py-2.5 text-slate-500 sm:table-cell">
+                    {(() => {
+                      const adj = isHoursAdjustmentType(r.type) ? parseHoursAdjustment(r.description) : null;
+                      if (adj) {
+                        return (
+                          <>
+                            <div className="font-semibold text-slate-700">{hoursAdjustmentSummary(adj)}</div>
+                            {adj.note ? <div className="mt-0.5 truncate text-xs">{adj.note}</div> : null}
+                          </>
+                        );
+                      }
+                      return <div className="truncate">{r.description || '—'}</div>;
+                    })()}
                     {r.manager_note && (
                       <div className="mt-0.5 truncate text-xs font-medium text-brand-700 lg:hidden">
                         תגובה: {r.manager_note}
