@@ -49,7 +49,7 @@ import {
   parseHoursAdjustment,
   timeFromIso,
 } from '@/lib/hoursAdjustment';
-import { Avatar, Badge, Card, SectionTitle } from '@/components/ui';
+import { Avatar, Badge, Card, SectionTitle, TruncatedText } from '@/components/ui';
 import jsQR from 'jsqr';
 
 type Tab = 'clock' | 'request' | 'history' | 'account';
@@ -1032,9 +1032,9 @@ function RequestPanel() {
                     ) : null}
                   </>
                 ) : (
-                  <p className="mt-0.5 truncate text-xs text-slate-400">{r.description || '—'}</p>
+                  <TruncatedText text={r.description || '—'} className="mt-0.5 text-xs text-slate-400" />
                 )}
-                {adj?.note && <p className="mt-0.5 truncate text-xs text-slate-400">{adj.note}</p>}
+                {adj?.note && <TruncatedText text={adj.note} className="mt-0.5 text-xs text-slate-400" />}
                 {r.manager_note && <p className="mt-1 text-xs text-brand-600">תגובת מנהל: {r.manager_note}</p>}
               </div>
               <div className="flex shrink-0 items-center gap-1 text-xs text-slate-400">

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import { ChevronRight, ChevronLeft, MoreVertical } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { Avatar, Badge, Card, SectionTitle } from '@/components/ui';
+import { Avatar, Badge, Card, SectionTitle, TruncatedText } from '@/components/ui';
 import { formatHebrewDate } from '@/lib/format';
 import type { EmployeeRequest, Attendance } from '@/types';
 import {
@@ -190,15 +190,15 @@ export function RequestsTable({
                             {originalHoursSummary(adj) ? (
                               <div className="mt-0.5 text-xs text-slate-500">לפני: {originalHoursSummary(adj)}</div>
                             ) : null}
-                            {adj.note ? <div className="mt-0.5 truncate text-xs">{adj.note}</div> : null}
+                            {adj.note ? <TruncatedText text={adj.note} className="mt-0.5 text-xs" /> : null}
                           </>
                         );
                       }
-                      return <div className="truncate">{r.description || '—'}</div>;
+                      return <TruncatedText text={r.description || '—'} />;
                     })()}
                     {r.manager_note && (
-                      <div className="mt-0.5 truncate text-xs font-medium text-brand-700 lg:hidden">
-                        תגובה: {r.manager_note}
+                      <div className="mt-0.5 lg:hidden">
+                        <TruncatedText text={`תגובה: ${r.manager_note}`} className="text-xs font-medium text-brand-700" />
                       </div>
                     )}
                   </td>

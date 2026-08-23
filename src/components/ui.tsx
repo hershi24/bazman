@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { initials, avatarColor } from '@/lib/format';
 
 export function Avatar({
@@ -48,6 +49,38 @@ export function Badge({
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
     <div className={`rounded-2xl border border-slate-200/80 bg-white shadow-card ${className}`}>{children}</div>
+  );
+}
+
+export function TruncatedText({ text, className = '' }: { text: string; className?: string }) {
+  const [tip, setTip] = useState<{ top: number; right: number } | null>(null);
+  if (!text.trim()) return <span className={className}>—</span>;
+
+  return (
+    <>
+      <span
+        className={`block max-w-full cursor-help truncate ${className}`}
+        onMouseEnter={(e) => {
+          const box = e.currentTarget.getBoundingClientRect();
+          setTip({ top: box.bottom + 6, right: window.innerWidth - box.right });
+        }}
+        onMouseLeave={() => setTip(null)}
+      >
+        {text}
+      </span>
+      {tip
+        ? createPortal(
+            <div
+              role="tooltip"
+              className="pointer-events-none fixed z-[200] max-w-sm rounded-xl bg-slate-800 px-3 py-2 text-right text-xs font-medium leading-relaxed text-white shadow-xl"
+              style={{ top: tip.top, right: tip.right }}
+            >
+              {text}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
