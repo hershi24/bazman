@@ -3,6 +3,7 @@ export function formatHebrewDate(d: string | Date | null): string {
   const date = typeof d === 'string' ? new Date(d) : d;
   if (isNaN(date.getTime())) return '—';
   return new Intl.DateTimeFormat('he-IL', {
+    timeZone: 'Asia/Jerusalem',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -14,8 +15,10 @@ export function formatTime(d: string | Date | null): string {
   const date = typeof d === 'string' ? new Date(d) : d;
   if (isNaN(date.getTime())) return '—';
   return new Intl.DateTimeFormat('he-IL', {
+    timeZone: 'Asia/Jerusalem',
     hour: '2-digit',
     minute: '2-digit',
+    hourCycle: 'h23',
   }).format(date);
 }
 

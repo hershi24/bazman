@@ -21,7 +21,7 @@ import { Card, Avatar, Badge } from '@/components/ui';
 import { formatHebrewDate, formatTime } from '@/lib/format';
 import { supabase } from '@/lib/supabase';
 import type { Attendance, EmployeeRequest, Profile } from '@/types';
-import { formatChangeRequestHtml, requestsForAttendanceDay } from '@/lib/monthlyReport';
+import { formatChangeRequestHtml, requestsForAttendanceDay, requestsForAttendanceRecord, attendanceShiftCaption } from '@/lib/monthlyReport';
 import {
   effectiveRequestDecision,
   hoursAdjustmentSummary,
@@ -87,11 +87,13 @@ type EmpSummary = {
 function ChangeRequestBlock({
   record,
   requests,
+  dayRecords,
 }: {
   record: Attendance;
   requests: EmployeeRequest[];
+  dayRecords?: Attendance[];
 }) {
-  const items = requestsForAttendanceDay(record.user_id, record.clock_in, requests);
+  const items = requestsForAttendanceRecord(record, requests, dayRecords);
   if (items.length === 0) return null;
   return (
     <div className="max-w-xs space-y-1.5">
@@ -228,13 +230,13 @@ export default function WorkHoursSummary({
           const isWeekend = dow >= 5;
           const hours = r.clock_out ? parseHours(r.clock_in, r.clock_out).toFixed(1) : '—';
           return `<tr class="${isWeekend ? 'weekend' : ''}">
-            <td class="date">${formatHebrewDate(r.clock_in)}</td>
+            <td class="date">${formatHebrewDate(r.clock_in)}${attendanceShiftCaption(r, s.records) ? `<div style="font-size:10px;font-weight:800;color:#4f46e5">${attendanceShiftCaption(r, s.records)}</div>` : ''}</td>
             <td class="${isWeekend ? 'weekend-day' : ''}">${DAY_NAMES_LONG[dow]}</td>
             <td class="in">${formatTime(r.clock_in)}</td>
             <td class="out">${formatTime(r.clock_out) || '<span class=\"missing\">יציאה חסרה</span>'}</td>
             <td class="hours">${hours}</td>
             <td>${r.location_verified ? 'מאומת' : 'לא מאומת'}</td>
-            <td class="change">${requestsForAttendanceDay(r.user_id, r.clock_in, requests).map((req) => formatChangeRequestHtml(req, r)).join('')}</td>
+            <td class="change">${requestsForAttendanceRecord(r, requests, s.records).map((req) => formatChangeRequestHtml(req, r)).join('')}</td>
           </tr>`;
         }).join('');
         return `
@@ -275,14 +277,15 @@ export default function WorkHoursSummary({
           const recs = recByDay.get(day) ?? [];
           let inner = `<div class="day-num ${isWeekend ? 'weekend' : ''}">${day}</div>`;
           if (recs.length > 0) {
-            const r = recs[0];
-            inner += `<div class="cal-in">↓ ${formatTime(r.clock_in)}</div>`;
-            inner += r.clock_out
-              ? `<div class="cal-out">↑ ${formatTime(r.clock_out)}</div>`
-              : `<div class="cal-missing">יציאה חסרה</div>`;
-            if (r.clock_out)
-              inner += `<div class="cal-hours">${parseHours(r.clock_in, r.clock_out).toFixed(1)}ש׳</div>`;
-            if (recs.length > 1) inner += `<div class="cal-more">+${recs.length - 1}</div>`;
+            recs.forEach((r, i) => {
+              if (recs.length > 1) inner += `<div class="cal-shift">משמרת ${i + 1}</div>`;
+              inner += `<div class="cal-in">↓ ${formatTime(r.clock_in)}</div>`;
+              inner += r.clock_out
+                ? `<div class="cal-out">↑ ${formatTime(r.clock_out)}</div>`
+                : `<div class="cal-missing">יציאה חסרה</div>`;
+              if (r.clock_out)
+                inner += `<div class="cal-hours">${parseHours(r.clock_in, r.clock_out).toFixed(1)}ש׳</div>`;
+            });
           }
           allCells.push(`<td class="cal-cell ${isWeekend ? 'weekend' : ''} ${recs.length > 0 ? 'has-rec' : ''}">${inner}</td>`);
         }
@@ -338,6 +341,7 @@ export default function WorkHoursSummary({
         .cal-out { font-size: 9px; color: #be123c; line-height: 1.3; font-weight: 600; }
         .cal-missing { font-size: 9px; color: #e11d48; font-weight: 700; }
         .cal-hours { font-size: 9px; color: #0f766e; font-weight: 700; }
+        .cal-shift { font-size: 8px; color: #4f46e5; font-weight: 800; margin-top: 3px; }
         .cal-more { font-size: 8px; color: #94a3b8; }
         .list-table { width: 100%; border-collapse: collapse; font-size: 12px; }
         .list-table th { background: #f1f5f9; padding: 6px 8px; text-align: right; font-weight: 700; color: #475569; border-bottom: 2px solid #e2e8f0; }
@@ -643,11 +647,17 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
             const dayRecords = recordsByDay.get(day) ?? [];
             const hasRecords = dayRecords.length > 0;
             const hasMissing = dayRecords.some((r) => !r.clock_out);
-            const dayReqs = dayRecords.flatMap((r) => requestsForAttendanceDay(r.user_id, r.clock_in, requests));
+            const dayReqs = dayRecords.flatMap((r) => requestsForAttendanceRecord(r, requests, dayRecords));
             const hasChange = dayReqs.length > 0;
-            const hasPendingReq = dayReqs.some((r) => effectiveRequestDecision(r, dayRecords[0]) === 'pending');
-            const hasRejectedReq = dayReqs.some((r) => effectiveRequestDecision(r, dayRecords[0]) === 'rejected');
-            const hasChangedReq = dayReqs.some((r) => effectiveRequestDecision(r, dayRecords[0]) === 'changed');
+            const hasPendingReq = dayRecords.some((rec) =>
+              requestsForAttendanceRecord(rec, requests, dayRecords).some((r) => effectiveRequestDecision(r, rec) === 'pending'),
+            );
+            const hasRejectedReq = dayRecords.some((rec) =>
+              requestsForAttendanceRecord(rec, requests, dayRecords).some((r) => effectiveRequestDecision(r, rec) === 'rejected'),
+            );
+            const hasChangedReq = dayRecords.some((rec) =>
+              requestsForAttendanceRecord(rec, requests, dayRecords).some((r) => effectiveRequestDecision(r, rec) === 'changed'),
+            );
 
             const statusColor = !hasRecords
               ? ''
@@ -707,6 +717,9 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
                   <div className="space-y-1">
                     {dayRecords.slice(0, 2).map((r, ri) => (
                       <div key={ri} className="rounded-md bg-white/80 px-1 py-0.5">
+                        {dayRecords.length > 1 && (
+                          <div className="text-[9px] font-extrabold text-indigo-600">משמרת {ri + 1}</div>
+                        )}
                         <div className="flex items-center gap-1 text-[10px] font-medium">
                           <LogIn className="h-2.5 w-2.5 shrink-0 text-emerald-500" />
                           <span className="text-slate-600">{formatTime(r.clock_in)}</span>
@@ -745,6 +758,9 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
                       </p>
                       {dayRecords.map((r, ri) => (
                         <div key={ri} className="mb-2 last:mb-0 border-b border-slate-100 pb-1.5 last:border-0 last:pb-0">
+                          {dayRecords.length > 1 && (
+                            <p className="mb-1 text-[10px] font-extrabold text-indigo-600">משמרת {ri + 1}</p>
+                          )}
                           <div className="flex items-center justify-between gap-4 text-[11px]">
                             <span className="text-slate-500">כניסה</span>
                             <span className="font-bold text-slate-700">{formatTime(r.clock_in)}</span>
@@ -759,7 +775,7 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
                               <span className="font-bold text-brand-600">{parseHours(r.clock_in, r.clock_out).toFixed(1)}</span>
                             </div>
                           )}
-                          <ChangeRequestBlock record={r} requests={requests} />
+                          <ChangeRequestBlock record={r} requests={requests} dayRecords={dayRecords} />
                           <div className="flex items-center justify-between gap-4 text-[11px]">
                             <span className="text-slate-500">מיקום</span>
                             <span className="font-medium text-slate-600">{r.location_verified ? 'מאומת' : 'לא מאומת'}</span>
@@ -881,6 +897,11 @@ function ListCard({ summary, requests, onReload }: { summary: EmpSummary; reques
               <div className="flex flex-1 flex-col gap-2">
                 {recs.map((r, ri) => (
                   <div key={ri} className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                    {recs.length > 1 && (
+                      <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-extrabold text-indigo-700">
+                        משמרת {ri + 1}
+                      </span>
+                    )}
                     {/* Clock in */}
                     <div className="flex items-center gap-1.5">
                       <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50">
@@ -935,7 +956,7 @@ function ListCard({ summary, requests, onReload }: { summary: EmpSummary; reques
                       )}
                     </div>
 
-                    <ChangeRequestBlock record={r} requests={requests} />
+                    <ChangeRequestBlock record={r} requests={requests} dayRecords={recs} />
 
                     {/* Edit button */}
                     <button

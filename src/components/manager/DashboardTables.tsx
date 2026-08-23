@@ -10,6 +10,7 @@ import {
   originalHoursSummary,
   isHoursAdjustmentType,
   parseHoursAdjustment,
+  setRequestStatus,
 } from '@/lib/hoursAdjustment';
 
 export function RequestsTable({
@@ -58,7 +59,7 @@ export function RequestsTable({
       }
     }
 
-    const { error } = await supabase.from('requests').update({ status }).eq('id', id);
+    const { error } = await setRequestStatus(id, status);
 
     if (!error && req) {
       await supabase.from('notifications').insert({
@@ -76,7 +77,7 @@ export function RequestsTable({
     onReload();
 
     if (error) {
-      flashToast('err', 'שגיאה בעדכון הבקשה');
+      flashToast('err', error);
     } else {
       flashToast(
         'ok',

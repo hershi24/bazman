@@ -98,14 +98,21 @@ Deno.serve(async (req: Request) => {
         return new Date(`${date}T${h}:${min}:00+03:00`).toISOString();
       };
 
+      const attendanceId = body.attendanceId ? String(body.attendanceId) : '';
+      const shiftNumber = Number(body.shiftNumber ?? 0);
       const { data: rows } = await adminClient
         .from('attendance')
         .select('id, clock_in, clock_out')
         .eq('user_id', employeeId)
-        .order('clock_in', { ascending: false })
-        .limit(120);
+        .order('clock_in', { ascending: true })
+        .limit(200);
 
-      const existing = (rows ?? []).find((r: { clock_in: string | null }) => dateKey(r.clock_in) === date);
+      const sameDay = (rows ?? []).filter((r: { clock_in: string | null }) => dateKey(r.clock_in) === date);
+      const existing =
+        (attendanceId ? sameDay.find((r: { id: string }) => r.id === attendanceId) : null) ??
+        (shiftNumber >= 1 && shiftNumber <= sameDay.length ? sameDay[shiftNumber - 1] : null) ??
+        sameDay[0] ??
+        null;
       const patch: Record<string, unknown> = {};
       if (clockIn) patch.clock_in = toIso(clockIn);
       if (clockOut) patch.clock_out = toIso(clockOut);

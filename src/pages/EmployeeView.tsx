@@ -36,8 +36,9 @@ import {
   printMonthlyReport,
   downloadMonthlyReportCsv,
   localDateKey,
-  requestsForAttendanceDay,
   formatChangeRequestsPlain,
+  requestsForAttendanceRecord,
+  attendanceShiftCaption,
 } from '@/lib/monthlyReport';
 import {
   formatHoursAdjustmentPayload,
@@ -46,6 +47,7 @@ import {
   originalHoursSummary,
   isHoursAdjustmentType,
   parseHoursAdjustment,
+  timeFromIso,
 } from '@/lib/hoursAdjustment';
 import { Avatar, Badge, Card, SectionTitle } from '@/components/ui';
 import jsQR from 'jsqr';
@@ -726,6 +728,8 @@ function RequestPanel() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [myRequests, setMyRequests] = useState<EmployeeRequest[]>([]);
+  const [dayShifts, setDayShifts] = useState<Attendance[]>([]);
+  const [selectedShiftId, setSelectedShiftId] = useState('');
 
   const hoursMode = isHoursAdjustmentType(type);
 
@@ -745,35 +749,35 @@ function RequestPanel() {
   }, []);
 
   useEffect(() => {
-    if (!hoursMode || !date || !profile) return;
+    if (!hoursMode || !date || !profile) {
+      setDayShifts([]);
+      setSelectedShiftId('');
+      return;
+    }
     (async () => {
       const [y, m, d] = date.split('-').map(Number);
       const start = new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
       const end = new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
       const { data } = await supabase
         .from('attendance')
-        .select('clock_in, clock_out')
+        .select('*')
         .eq('user_id', profile.id)
         .gte('clock_in', start)
         .lte('clock_in', end)
-        .order('clock_in', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      const toTime = (iso: string | null) => {
-        if (!iso) return '';
-        const dt = new Date(iso);
-        if (isNaN(dt.getTime())) return '';
-        return `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
-      };
-      if (!data) {
+        .order('clock_in', { ascending: true });
+      const rows = ((data as Attendance[]) ?? []).filter((r) => localDateKey(r.clock_in) === date);
+      setDayShifts(rows);
+      const pick = rows.length === 1 ? rows[0] : null;
+      setSelectedShiftId(pick?.id ?? '');
+      if (!pick) {
         setOriginalIn(null);
         setOriginalOut(null);
         return;
       }
-      const origIn = toTime(data.clock_in);
-      const origOut = toTime(data.clock_out);
-      setOriginalIn(origIn || null);
-      setOriginalOut(origOut || null);
+      const origIn = timeFromIso(pick.clock_in);
+      const origOut = timeFromIso(pick.clock_out);
+      setOriginalIn(origIn);
+      setOriginalOut(origOut);
       if (origIn) setClockIn(origIn);
       if (origOut) setClockOut(origOut);
     })();
@@ -791,6 +795,11 @@ function RequestPanel() {
         setMsg({ type: 'err', text: 'נא לבחור את התאריך שצריך להתאים.' });
         return;
       }
+      if (dayShifts.length > 1 && !selectedShiftId) {
+        setBusy(false);
+        setMsg({ type: 'err', text: 'יש כמה משמרות ביום הזה. נא לבחור איזו משמרת לתקן.' });
+        return;
+      }
       if ((!wantIn || !clockIn) && (!wantOut || !clockOut)) {
         setBusy(false);
         setMsg({ type: 'err', text: 'נא לבחור כניסה ו/או יציאה ולמלא שעה.' });
@@ -803,12 +812,20 @@ function RequestPanel() {
         setMsg({ type: 'err', text: 'שעת היציאה צריכה להיות אחרי שעת הכניסה.' });
         return;
       }
+      const selectedShift =
+        dayShifts.find((s) => s.id === selectedShiftId) ?? (dayShifts.length === 1 ? dayShifts[0] : null);
       payloadDescription = formatHoursAdjustmentPayload({
         clockIn: inTime || null,
         clockOut: outTime || null,
         originalClockIn: originalIn,
         originalClockOut: originalOut,
         note: description.trim(),
+        attendanceId: selectedShift?.id ?? null,
+        shiftNumber: selectedShift
+          ? dayShifts.findIndex((s) => s.id === selectedShift.id) + 1
+          : dayShifts.length > 0
+            ? 1
+            : null,
       });
     }
 
@@ -832,6 +849,8 @@ function RequestPanel() {
       setOriginalOut(null);
       setWantIn(true);
       setWantOut(true);
+      setDayShifts([]);
+      setSelectedShiftId('');
       loadMine();
     }
   }
@@ -874,6 +893,48 @@ function RequestPanel() {
               className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
             />
           </div>
+          {hoursMode && dayShifts.length > 1 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">
+                ביום הזה יש {dayShifts.length} משמרות — באיזו לתקן?
+              </p>
+              <div className="grid gap-2">
+                {dayShifts.map((s, i) => {
+                  const selected = selectedShiftId === s.id;
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedShiftId(s.id);
+                        const origIn = timeFromIso(s.clock_in);
+                        const origOut = timeFromIso(s.clock_out);
+                        setOriginalIn(origIn);
+                        setOriginalOut(origOut);
+                        if (origIn) setClockIn(origIn);
+                        if (origOut) setClockOut(origOut);
+                      }}
+                      className={`rounded-xl border px-4 py-3 text-right transition ${
+                        selected
+                          ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-100'
+                          : 'border-slate-200 bg-white hover:border-brand-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-extrabold text-slate-800">משמרת {i + 1}</span>
+                        <span className="text-sm font-bold tabular-nums text-slate-600" dir="ltr">
+                          {timeFromIso(s.clock_in) ?? '—'} – {timeFromIso(s.clock_out) ?? 'פתוחה'}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {hoursMode && date && dayShifts.length === 0 && (
+            <p className="text-xs text-amber-700">אין דיווח ביום הזה עדיין. אפשר לבקש שעות, ואחרי האישור ייווצר דיווח.</p>
+          )}
           {hoursMode && (
             <div className="space-y-3 rounded-2xl border border-brand-100 bg-brand-50/50 p-4">
               <p className="text-sm font-medium text-slate-700">איזו שעה לתקן?</p>
@@ -1133,7 +1194,8 @@ function HistoryPanel() {
         <>
           <div className="divide-y divide-slate-100">
             {records.map((a) => {
-              const dayReqs = requestsForAttendanceDay(a.user_id, a.clock_in, monthRequests);
+              const dayReqs = requestsForAttendanceRecord(a, monthRequests, records);
+              const shift = attendanceShiftCaption(a, records);
               return (
               <div key={a.id} className="flex items-center justify-between gap-3 px-5 py-3">
                 <div className="flex min-w-0 items-center gap-3">
@@ -1147,7 +1209,14 @@ function HistoryPanel() {
                     <Clock className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-slate-700">{formatHebrewDate(a.clock_in)}</p>
+                    <p className="text-sm font-bold text-slate-700">
+                      {formatHebrewDate(a.clock_in)}
+                      {shift ? (
+                        <span className="mr-2 inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-extrabold text-indigo-700">
+                          {shift}
+                        </span>
+                      ) : null}
+                    </p>
                     <p className="text-xs text-slate-400">
                       {formatTime(a.clock_in)} — {formatTime(a.clock_out)} ·{' '}
                       {a.clock_out ? `${parseHours(a.clock_in, a.clock_out).toFixed(1)} שעות` : 'יציאה חסרה'}

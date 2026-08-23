@@ -18,7 +18,7 @@ import { Card, SectionTitle, Avatar, Badge } from '@/components/ui';
 import WorkHoursSummary from '@/components/manager/WorkHoursSummary';
 import { managerDeleteAttendance, managerInsertAttendance } from '@/lib/managerAttendance';
 import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
-import { formatChangeRequestsPlain, requestsForAttendanceDay } from '@/lib/monthlyReport';
+import { formatChangeRequestsPlain, requestsForAttendanceRecord, attendanceShiftCaption } from '@/lib/monthlyReport';
 import type { Profile, Attendance, Shift, EmployeeRequest, Reminder, Expense, QuickSticker, ProfileField, AllowedLocation, EmployeeLocation, Department } from '@/types';
 
 export default function ManagerView() {
@@ -1930,11 +1930,15 @@ function MonthlyDetailPage({ attendance, requests }: { attendance: Attendance[];
           <thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="px-4 py-2.5 font-medium">עובד</th><th className="px-4 py-2.5 font-medium">תאריך</th><th className="px-4 py-2.5 font-medium">כניסה</th><th className="px-4 py-2.5 font-medium">יציאה</th><th className="px-4 py-2.5 font-medium">שעות</th><th className="px-4 py-2.5 font-medium">בקשת שינוי</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {attendance.map((a) => {
-              const dayReqs = requestsForAttendanceDay(a.user_id, a.clock_in, requests);
+              const dayReqs = requestsForAttendanceRecord(a, requests, attendance);
+              const shift = attendanceShiftCaption(a, attendance);
               return (
               <tr key={a.id} className="hover:bg-slate-50/60">
                 <td className="px-4 py-2.5 font-semibold text-slate-700">{a.profile?.full_name ?? '—'}</td>
-                <td className="px-4 py-2.5 text-slate-500">{formatHebrewDate(a.clock_in)}</td>
+                <td className="px-4 py-2.5 text-slate-500">
+                  {formatHebrewDate(a.clock_in)}
+                  {shift ? <div className="text-[10px] font-extrabold text-indigo-600">{shift}</div> : null}
+                </td>
                 <td className="px-4 py-2.5 text-slate-500">{formatTime(a.clock_in)}</td>
                 <td className="px-4 py-2.5 text-slate-500">{formatTime(a.clock_out) || '—'}</td>
                 <td className="px-4 py-2.5 text-slate-500">{a.clock_out ? hoursBetween(a.clock_in, a.clock_out) : '—'}</td>

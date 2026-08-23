@@ -1,6 +1,6 @@
 import type { Attendance, EmployeeRequest, Profile } from '@/types';
 import { formatHebrewDate, formatTime } from '@/lib/format';
-import { hoursAdjustmentSummary, originalHoursSummary, parseHoursAdjustment, effectiveRequestDecision } from '@/lib/hoursAdjustment';
+import { hoursAdjustmentSummary, originalHoursSummary, parseHoursAdjustment, effectiveRequestDecision, israelDateKey, isHoursAdjustmentType, shiftLabel } from '@/lib/hoursAdjustment';
 
 export const MONTH_NAMES = [
   'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
@@ -45,12 +45,7 @@ export type MonthlySummary = {
 };
 
 export function localDateKey(value: string | null | undefined): string {
-  if (!value) return '';
-  const raw = value.trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  const d = new Date(raw);
-  if (isNaN(d.getTime())) return '';
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return israelDateKey(value);
 }
 
 export function requestsForAttendanceDay(
@@ -61,6 +56,49 @@ export function requestsForAttendanceDay(
   const key = localDateKey(clockIn);
   if (!key) return [];
   return requests.filter((r) => r.user_id === userId && localDateKey(r.requested_date) === key);
+}
+
+export function shiftMetaForAttendance(
+  record: Attendance,
+  records: Attendance[],
+): { number: number; total: number } {
+  const key = localDateKey(record.clock_in);
+  const day = records
+    .filter((r) => r.user_id === record.user_id && localDateKey(r.clock_in) === key)
+    .sort((a, b) => new Date(a.clock_in ?? 0).getTime() - new Date(b.clock_in ?? 0).getTime());
+  return {
+    number: Math.max(1, day.findIndex((r) => r.id === record.id) + 1),
+    total: day.length || 1,
+  };
+}
+
+export function requestAppliesToAttendance(
+  req: EmployeeRequest,
+  record: Attendance,
+  dayRecords: Attendance[],
+): boolean {
+  const meta = shiftMetaForAttendance(record, dayRecords);
+  const adj = isHoursAdjustmentType(req.type) ? parseHoursAdjustment(req.description) : null;
+  if (!adj) return meta.total <= 1 || meta.number === 1;
+  if (adj.attendanceId) return adj.attendanceId === record.id;
+  if (adj.shiftNumber) return adj.shiftNumber === meta.number;
+  return meta.total <= 1 || meta.number === 1;
+}
+
+export function attendanceShiftCaption(record: Attendance, records: Attendance[]): string {
+  const meta = shiftMetaForAttendance(record, records);
+  return shiftLabel(meta.number, meta.total);
+}
+
+export function requestsForAttendanceRecord(
+  record: Attendance,
+  requests: EmployeeRequest[],
+  dayRecords?: Attendance[],
+): EmployeeRequest[] {
+  const siblings = dayRecords ?? [record];
+  return requestsForAttendanceDay(record.user_id, record.clock_in, requests).filter((req) =>
+    requestAppliesToAttendance(req, record, siblings),
+  );
 }
 
 export function changeRequestDecision(req: EmployeeRequest): 'pending' | 'approved' | 'rejected' | 'changed' {
@@ -81,7 +119,7 @@ export function changeRequestDecisionLabel(req: EmployeeRequest): string {
 export function formatChangeRequestPlain(req: EmployeeRequest, record?: Attendance | null): string {
   const adj = parseHoursAdjustment(req.description);
   const asked = adj
-    ? `${req.type} — מבוקש: ${hoursAdjustmentSummary(adj)}`
+    ? `${req.type}${adj.shiftNumber && adj.shiftNumber > 1 ? ` · ${shiftLabel(adj.shiftNumber)}` : ''} — מבוקש: ${hoursAdjustmentSummary(adj)}`
     : req.description?.trim()
       ? `${req.type} — ${req.description.trim()}`
       : req.type;
@@ -112,7 +150,7 @@ function escapeHtml(s: string): string {
 export function formatChangeRequestHtml(req: EmployeeRequest, record?: Attendance | null): string {
   const adj = parseHoursAdjustment(req.description);
   const askedRaw = adj
-    ? `${req.type} — מבוקש: ${hoursAdjustmentSummary(adj)}`
+    ? `${req.type}${adj.shiftNumber && adj.shiftNumber > 1 ? ` · ${shiftLabel(adj.shiftNumber)}` : ''} — מבוקש: ${hoursAdjustmentSummary(adj)}`
     : req.description?.trim()
       ? `${req.type} — ${req.description.trim()}`
       : req.type;
@@ -154,10 +192,11 @@ function buildReportRows(records: Attendance[], requests: EmployeeRequest[]): st
       const dow = d.getDay();
       const isWeekend = dow >= 5;
       const hours = r.clock_out ? parseHours(r.clock_in, r.clock_out).toFixed(1) : '—';
-      const dayReqs = requestsForAttendanceDay(r.user_id, r.clock_in, requests);
+      const dayReqs = requestsForAttendanceRecord(r, requests, records);
+      const shift = attendanceShiftCaption(r, records);
       const changeCell = dayReqs.length > 0 ? dayReqs.map((req) => formatChangeRequestHtml(req, r)).join('') : '';
       return `<tr class="${isWeekend ? 'weekend' : ''}">
-        <td class="date">${formatHebrewDate(r.clock_in)}</td>
+        <td class="date">${formatHebrewDate(r.clock_in)}${shift ? `<div class="shift">${shift}</div>` : ''}</td>
         <td class="${isWeekend ? 'weekend-day' : ''}">${DAY_NAMES_LONG[dow]}</td>
         <td class="in">${formatTime(r.clock_in)}</td>
         <td class="out">${formatTime(r.clock_out) || '<span class="missing">יציאה חסרה</span>'}</td>
@@ -198,6 +237,7 @@ export function generateEmployeeMonthlyReportHtml(
       tfoot td { border-top: 2px solid #cbd5e1; font-weight: 700; background: #f8fafc; }
       tr.weekend { background: #fffbeb; }
       td.date { font-weight: 700; }
+      .shift { margin-top: 2px; font-size: 10px; font-weight: 800; color: #4f46e5; }
       td.weekend-day { color: #b45309; font-weight: 700; }
       td.in { color: #059669; font-weight: 600; }
       td.out { color: #be123c; font-weight: 600; }
@@ -280,13 +320,14 @@ export function downloadMonthlyReportCsv(
   selectedMonth: string,
   summary: MonthlySummary,
 ): void {
-  const header = ['תאריך', 'יום', 'כניסה', 'יציאה', 'שעות', 'אימות', 'בקשת שינוי'];
+  const header = ['תאריך', 'משמרת', 'יום', 'כניסה', 'יציאה', 'שעות', 'אימות', 'בקשת שינוי'];
   const rows = summary.records.map((r) => {
     const d = new Date(r.clock_in!);
     const hours = r.clock_out ? parseHours(r.clock_in, r.clock_out).toFixed(1) : '';
-    const dayReqs = requestsForAttendanceDay(r.user_id, r.clock_in, summary.changeRequests);
+    const dayReqs = requestsForAttendanceRecord(r, summary.changeRequests, summary.records);
     return [
       formatHebrewDate(r.clock_in),
+      attendanceShiftCaption(r, summary.records) || 'משמרת 1',
       DAY_NAMES_LONG[d.getDay()],
       formatTime(r.clock_in),
       r.clock_out ? formatTime(r.clock_out) : 'יציאה חסרה',
