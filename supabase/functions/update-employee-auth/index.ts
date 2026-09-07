@@ -83,19 +83,28 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      const pad = (n: number) => String(n).padStart(2, '0');
       const dateKey = (iso: string | null | undefined) => {
         if (!iso) return '';
-        if (/^\d{4}-\d{2}-\d{2}/.test(iso)) return iso.slice(0, 10);
-        const d = new Date(iso);
-        if (isNaN(d.getTime())) return '';
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        const raw = String(iso);
+        const d = new Date(raw);
+        if (!isNaN(d.getTime()) && (raw.includes('T') || /Z|[+-]\d{2}:\d{2}/.test(raw))) {
+          return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(d);
+        }
+        if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+        return '';
       };
       const toIso = (time: string) => {
         const [hh, mm] = time.split(':');
         const h = String(Number(hh)).padStart(2, '0');
         const min = String(Number(mm)).padStart(2, '0');
         return new Date(`${date}T${h}:${min}:00+03:00`).toISOString();
+      };
+      const parseProvidedIso = (value: unknown): string | null => {
+        if (!value) return null;
+        const s = String(value);
+        if (!/\d{4}-\d{2}-\d{2}T/.test(s)) return null;
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : d.toISOString();
       };
 
       const attendanceId = body.attendanceId ? String(body.attendanceId) : '';
@@ -114,8 +123,12 @@ Deno.serve(async (req: Request) => {
         sameDay[0] ??
         null;
       const patch: Record<string, unknown> = {};
-      if (clockIn) patch.clock_in = toIso(clockIn);
-      if (clockOut) patch.clock_out = toIso(clockOut);
+      if (clockIn) patch.clock_in = parseProvidedIso(body.clockInIso) ?? toIso(clockIn);
+      if (clockOut) patch.clock_out = parseProvidedIso(body.clockOutIso) ?? toIso(clockOut);
+      const startIso = String(patch.clock_in ?? existing?.clock_in ?? '');
+      if (startIso && patch.clock_out && new Date(String(patch.clock_out)).getTime() <= new Date(startIso).getTime()) {
+        patch.clock_out = new Date(new Date(String(patch.clock_out)).getTime() + 24 * 60 * 60 * 1000).toISOString();
+      }
 
       if (existing) {
         const { error } = await adminClient.from('attendance').update(patch).eq('id', existing.id);

@@ -230,6 +230,43 @@ export function combineLocalDateTime(dateStr: string, timeStr: string): string {
   return new Date(`${key}T${hh}:${mm}:00+03:00`).toISOString();
 }
 
+export function addCalendarDays(dateKey: string, days: number): string {
+  const [y, m, d] = localDateKey(dateKey).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+}
+
+/** If clock-out is earlier than clock-in, treat it as the next calendar day (overnight shift). */
+export function combineOvernightClockOut(
+  date: string,
+  clockOut: string,
+  clockInIso: string | null | undefined,
+): string {
+  let outIso = combineLocalDateTime(date, clockOut);
+  if (clockInIso && new Date(outIso).getTime() <= new Date(clockInIso).getTime()) {
+    outIso = combineLocalDateTime(addCalendarDays(date, 1), clockOut);
+  }
+  return outIso;
+}
+
+export function isOvernightClockTimes(clockIn: string | null | undefined, clockOut: string | null | undefined): boolean {
+  if (!clockIn || !clockOut) return false;
+  return padTime(clockOut) < padTime(clockIn);
+}
+
+export function resolveHoursAdjustmentTimes(
+  date: string,
+  clockIn: string | null,
+  clockOut: string | null,
+  existingInIso?: string | null,
+): { clockInIso: string | null; clockOutIso: string | null } {
+  const clockInIso = clockIn ? combineLocalDateTime(date, clockIn) : null;
+  const startIso = clockInIso ?? existingInIso ?? null;
+  const clockOutIso = clockOut ? combineOvernightClockOut(date, clockOut, startIso) : null;
+  return { clockInIso, clockOutIso };
+}
+
 export async function setRequestStatus(
   id: string,
   status: 'approved' | 'rejected',
@@ -260,6 +297,8 @@ async function applyViaEdgeFunction(
   clockOut: string | null,
   attendanceId: string | null,
   shiftNumber: number | null,
+  clockInIso?: string | null,
+  clockOutIso?: string | null,
 ): Promise<boolean> {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
@@ -272,6 +311,8 @@ async function applyViaEdgeFunction(
     date,
     clockIn,
     clockOut,
+    clockInIso: clockInIso || undefined,
+    clockOutIso: clockOutIso || undefined,
     attendanceId,
     shiftNumber,
   });
@@ -311,44 +352,30 @@ export async function applyHoursAdjustment(req: EmployeeRequest): Promise<{ erro
   if (selErr) return { error: selErr.message };
 
   const existing = pickAttendanceForHoursAdjustment(rows ?? [], date, adj);
+  const { clockInIso, clockOutIso } = resolveHoursAdjustmentTimes(
+    date,
+    adj.clockIn,
+    adj.clockOut,
+    existing?.clock_in,
+  );
 
-  if (
-    await applyViaEdgeFunction(
-      req.user_id,
-      date,
-      adj.clockIn,
-      adj.clockOut,
-      existing?.id ?? adj.attendanceId,
-      adj.shiftNumber,
-    )
-  ) {
-    return { error: null };
-  }
   const patch: Record<string, unknown> = {};
-  if (adj.clockIn) patch.clock_in = combineLocalDateTime(date, adj.clockIn);
-  if (adj.clockOut) patch.clock_out = combineLocalDateTime(date, adj.clockOut);
+  if (adj.clockIn) patch.clock_in = clockInIso;
+  if (adj.clockOut) patch.clock_out = clockOutIso;
 
   const finalIn = String(patch.clock_in ?? existing?.clock_in ?? '');
   const finalOut = String(patch.clock_out ?? existing?.clock_out ?? '');
-  if (finalIn && finalOut && new Date(finalOut).getTime() < new Date(finalIn).getTime()) {
+  if (finalIn && finalOut && new Date(finalOut).getTime() <= new Date(finalIn).getTime()) {
     return { error: 'שעת היציאה המבוקשת מוקדמת משעת הכניסה.' };
   }
 
-  if (existing) {
+  // Apply resolved timestamps first so overnight 22:00–02:00 cannot be written as the same calendar day
+  // by an older edge function that still concatenates date + time.
+  if (existing && Object.keys(patch).length > 0) {
     const { error } = await supabase.from('attendance').update(patch).eq('id', existing.id);
     if (!error) return { error: null };
     if (!/row-level security/i.test(error.message)) return { error: error.message };
-  } else {
-    const { error: rpcError } = await supabase.rpc('apply_hours_adjustment', {
-      p_user_id: req.user_id,
-      p_date: date,
-      p_clock_in: adj.clockIn,
-      p_clock_out: adj.clockOut,
-    });
-    if (!rpcError) return { error: null };
-  }
-
-  if (!existing && adj.clockIn) {
+  } else if (!existing && adj.clockIn) {
     const { error } = await supabase.from('attendance').insert({
       user_id: req.user_id,
       clock_in: patch.clock_in,
@@ -361,6 +388,32 @@ export async function applyHoursAdjustment(req: EmployeeRequest): Promise<{ erro
       status: 'approved',
     });
     if (!error) return { error: null };
+  }
+
+  if (
+    await applyViaEdgeFunction(
+      req.user_id,
+      date,
+      adj.clockIn,
+      adj.clockOut,
+      existing?.id ?? adj.attendanceId,
+      adj.shiftNumber,
+      clockInIso,
+      clockOutIso,
+    )
+  ) {
+    return { error: null };
+  }
+
+  const overnight = isOvernightClockTimes(adj.clockIn ?? timeFromIso(existing?.clock_in), adj.clockOut);
+  if (!overnight) {
+    const { error: rpcError } = await supabase.rpc('apply_hours_adjustment', {
+      p_user_id: req.user_id,
+      p_date: date,
+      p_clock_in: adj.clockIn,
+      p_clock_out: adj.clockOut,
+    });
+    if (!rpcError) return { error: null };
   }
 
   return {

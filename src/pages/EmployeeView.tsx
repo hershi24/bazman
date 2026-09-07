@@ -48,7 +48,9 @@ import {
   isHoursAdjustmentType,
   parseHoursAdjustment,
   timeFromIso,
+  isOvernightClockTimes,
 } from '@/lib/hoursAdjustment';
+import { isActiveOpenShift, isTodayAttendance, israelYesterdayStart, openShiftLabel } from '@/lib/attendanceDay';
 import { Avatar, Badge, Card, SectionTitle, TruncatedText } from '@/components/ui';
 import jsQR from 'jsqr';
 
@@ -182,17 +184,31 @@ function ClockPanel() {
 
   async function loadToday() {
     setLoading(true);
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const { data } = await supabase
-      .from('attendance')
-      .select('*')
-      .eq('user_id', profile!.id)
-      .gte('created_at', startOfDay.toISOString())
-      .order('created_at', { ascending: false });
-    const rows = (data as Attendance[]) ?? [];
-    const open = rows.find((r) => r.clock_in && !r.clock_out) ?? null;
-    setTodayRecords(rows);
+    const lookbackIso = israelYesterdayStart().toISOString();
+    const [{ data: recent }, { data: openRows }] = await Promise.all([
+      supabase
+        .from('attendance')
+        .select('*')
+        .eq('user_id', profile!.id)
+        .gte('clock_in', lookbackIso)
+        .order('clock_in', { ascending: false }),
+      supabase
+        .from('attendance')
+        .select('*')
+        .eq('user_id', profile!.id)
+        .is('clock_out', null)
+        .order('clock_in', { ascending: false })
+        .limit(10),
+    ]);
+    const byId = new Map<string, Attendance>();
+    for (const row of [...((recent as Attendance[]) ?? []), ...((openRows as Attendance[]) ?? [])]) {
+      byId.set(row.id, row);
+    }
+    const rows = Array.from(byId.values()).sort(
+      (a, b) => new Date(b.clock_in ?? 0).getTime() - new Date(a.clock_in ?? 0).getTime(),
+    );
+    const open = rows.find((r) => isActiveOpenShift(r)) ?? null;
+    setTodayRecords(rows.filter((r) => isTodayAttendance(r)));
     setOpenShift(open);
     setLoading(false);
   }
@@ -807,7 +823,7 @@ function RequestPanel() {
       }
       const inTime = wantIn ? clockIn : '';
       const outTime = wantOut ? clockOut : '';
-      if (inTime && outTime && outTime <= inTime) {
+      if (inTime && outTime && inTime === outTime) {
         setBusy(false);
         setMsg({ type: 'err', text: 'שעת היציאה צריכה להיות אחרי שעת הכניסה.' });
         return;
@@ -968,7 +984,12 @@ function RequestPanel() {
                   />
                 </label>
               </div>
-              <p className="text-xs text-slate-500">אחרי שהמנהל יאשר, השעות בדיווח יתעדכנו אוטומטית.</p>
+              {wantIn && wantOut && isOvernightClockTimes(clockIn, clockOut) && (
+                <p className="text-xs font-medium text-emerald-700">
+                  יציאה אחרי חצות — אחרי אישור, המשמרת תיסגר ביום למחרת (למשל 22:00–02:00).
+                </p>
+              )}
+              <p className="text-xs text-slate-500">אחרי שהמנהל יאשר, השעות בדיווח יתעדכנו אוטומטית. משמרת לילה (יציאה אחרי חצות) נתמכת.</p>
             </div>
           )}
           <div>
@@ -1219,7 +1240,9 @@ function HistoryPanel() {
                     </p>
                     <p className="text-xs text-slate-400">
                       {formatTime(a.clock_in)} — {formatTime(a.clock_out)} ·{' '}
-                      {a.clock_out ? `${parseHours(a.clock_in, a.clock_out).toFixed(1)} שעות` : 'יציאה חסרה'}
+                      {a.clock_out
+                        ? `${parseHours(a.clock_in, a.clock_out).toFixed(1)} שעות`
+                        : openShiftLabel(a)}
                     </p>
                     {dayReqs.length > 0 && (
                       <p className="mt-1 text-[11px] leading-snug text-slate-600">{formatChangeRequestsPlain(dayReqs)}</p>
