@@ -48,6 +48,7 @@ import {
   isHoursAdjustmentType,
   parseHoursAdjustment,
   timeFromIso,
+  isOvernightClockTimes,
 } from '@/lib/hoursAdjustment';
 import { isActiveOpenShift, isTodayAttendance, israelYesterdayStart, openShiftLabel } from '@/lib/attendanceDay';
 import { Avatar, Badge, Card, SectionTitle, TruncatedText } from '@/components/ui';
@@ -983,7 +984,12 @@ function RequestPanel() {
                   />
                 </label>
               </div>
-              <p className="text-xs text-slate-500">אחרי שהמנהל יאשר, השעות בדיווח יתעדכנו אוטומטית.</p>
+              {wantIn && wantOut && isOvernightClockTimes(clockIn, clockOut) && (
+                <p className="text-xs font-medium text-emerald-700">
+                  יציאה אחרי חצות — אחרי אישור, המשמרת תיסגר ביום למחרת (למשל 22:00–02:00).
+                </p>
+              )}
+              <p className="text-xs text-slate-500">אחרי שהמנהל יאשר, השעות בדיווח יתעדכנו אוטומטית. משמרת לילה (יציאה אחרי חצות) נתמכת.</p>
             </div>
           )}
           <div>

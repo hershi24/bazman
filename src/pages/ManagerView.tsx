@@ -19,6 +19,7 @@ import WorkHoursSummary from '@/components/manager/WorkHoursSummary';
 import { managerDeleteAttendance, managerInsertAttendance } from '@/lib/managerAttendance';
 import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
 import { isActiveOpenShift, isMissingClockOut, isTodayAttendance } from '@/lib/attendanceDay';
+import { combineLocalDateTime, combineOvernightClockOut, isOvernightClockTimes } from '@/lib/hoursAdjustment';
 import { formatChangeRequestsPlain, requestsForAttendanceRecord, attendanceShiftCaption } from '@/lib/monthlyReport';
 import type { Profile, Attendance, Shift, EmployeeRequest, Reminder, Expense, QuickSticker, ProfileField, AllowedLocation, EmployeeLocation, Department } from '@/types';
 
@@ -1246,14 +1247,14 @@ function EmployeeReportsPage({ attendance, profiles, onReload }: { attendance: A
       setMsg({ type: 'err', text: 'נא לבחור עובד, תאריך ושעת כניסה.' });
       return;
     }
-    if (addOut && addOut <= addIn) {
+    if (addOut && addOut === addIn) {
       setMsg({ type: 'err', text: 'שעת היציאה צריכה להיות אחרי שעת הכניסה.' });
       return;
     }
     setAddBusy(true);
     setMsg(null);
-    const clockIn = new Date(`${addDate}T${addIn}:00+03:00`).toISOString();
-    const clockOut = addOut ? new Date(`${addDate}T${addOut}:00+03:00`).toISOString() : null;
+    const clockIn = combineLocalDateTime(addDate, addIn);
+    const clockOut = addOut ? combineOvernightClockOut(addDate, addOut, clockIn) : null;
     const result = await managerInsertAttendance({ userId, clockIn, clockOut });
     setAddBusy(false);
     if (result.error) {
@@ -1301,6 +1302,11 @@ function EmployeeReportsPage({ attendance, profiles, onReload }: { attendance: A
           <button type="submit" disabled={addBusy} className="rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-900 disabled:opacity-60">
             {addBusy ? 'מוסיף...' : 'שמור דיווח'}
           </button>
+          {addIn && addOut && isOvernightClockTimes(addIn, addOut) && (
+            <p className="sm:col-span-2 lg:col-span-5 text-xs font-medium text-emerald-700">
+              יציאה אחרי חצות — המשמרת תיסגר ביום למחרת
+            </p>
+          )}
         </form>
       )}
       {msg && (
