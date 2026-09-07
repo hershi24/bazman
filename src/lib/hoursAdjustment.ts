@@ -230,6 +230,26 @@ export function combineLocalDateTime(dateStr: string, timeStr: string): string {
   return new Date(`${key}T${hh}:${mm}:00+03:00`).toISOString();
 }
 
+export function addCalendarDays(dateKey: string, days: number): string {
+  const [y, m, d] = localDateKey(dateKey).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+}
+
+/** If clock-out is earlier than clock-in, treat it as the next calendar day (overnight shift). */
+export function combineOvernightClockOut(
+  date: string,
+  clockOut: string,
+  clockInIso: string | null | undefined,
+): string {
+  let outIso = combineLocalDateTime(date, clockOut);
+  if (clockInIso && new Date(outIso).getTime() <= new Date(clockInIso).getTime()) {
+    outIso = combineLocalDateTime(addCalendarDays(date, 1), clockOut);
+  }
+  return outIso;
+}
+
 export async function setRequestStatus(
   id: string,
   status: 'approved' | 'rejected',
@@ -326,11 +346,12 @@ export async function applyHoursAdjustment(req: EmployeeRequest): Promise<{ erro
   }
   const patch: Record<string, unknown> = {};
   if (adj.clockIn) patch.clock_in = combineLocalDateTime(date, adj.clockIn);
-  if (adj.clockOut) patch.clock_out = combineLocalDateTime(date, adj.clockOut);
+  const startIso = String(patch.clock_in ?? existing?.clock_in ?? '') || null;
+  if (adj.clockOut) patch.clock_out = combineOvernightClockOut(date, adj.clockOut, startIso);
 
   const finalIn = String(patch.clock_in ?? existing?.clock_in ?? '');
   const finalOut = String(patch.clock_out ?? existing?.clock_out ?? '');
-  if (finalIn && finalOut && new Date(finalOut).getTime() < new Date(finalIn).getTime()) {
+  if (finalIn && finalOut && new Date(finalOut).getTime() <= new Date(finalIn).getTime()) {
     return { error: 'שעת היציאה המבוקשת מוקדמת משעת הכניסה.' };
   }
 

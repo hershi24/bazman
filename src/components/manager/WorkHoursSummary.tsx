@@ -28,6 +28,7 @@ import {
   originalHoursSummary,
   parseHoursAdjustment,
 } from '@/lib/hoursAdjustment';
+import { isActiveOpenShift, isMissingClockOut, openShiftLabel } from '@/lib/attendanceDay';
 
 function toDateTimeLocal(iso: string | null): string {
   if (!iso) return '';
@@ -199,7 +200,7 @@ export default function WorkHoursSummary({
         totalHours,
         daysWorked: records.length,
         changeRequestCount: records.filter((r) => requestsForAttendanceDay(r.user_id, r.clock_in, requests).length > 0).length,
-        missingClockOut: records.filter((r) => !r.clock_out).length,
+        missingClockOut: records.filter((r) => isMissingClockOut(r)).length,
       });
     });
     return result.sort((a, b) => b.totalHours - a.totalHours);
@@ -233,7 +234,7 @@ export default function WorkHoursSummary({
             <td class="date">${formatHebrewDate(r.clock_in)}${attendanceShiftCaption(r, s.records) ? `<div style="font-size:10px;font-weight:800;color:#4f46e5">${attendanceShiftCaption(r, s.records)}</div>` : ''}</td>
             <td class="${isWeekend ? 'weekend-day' : ''}">${DAY_NAMES_LONG[dow]}</td>
             <td class="in">${formatTime(r.clock_in)}</td>
-            <td class="out">${formatTime(r.clock_out) || '<span class=\"missing\">יציאה חסרה</span>'}</td>
+            <td class="out">${formatTime(r.clock_out) || `<span class="missing">${openShiftLabel(r)}</span>`}</td>
             <td class="hours">${hours}</td>
             <td>${r.location_verified ? 'מאומת' : 'לא מאומת'}</td>
             <td class="change">${requestsForAttendanceRecord(r, requests, s.records).map((req) => formatChangeRequestHtml(req, r)).join('')}</td>
@@ -282,7 +283,7 @@ export default function WorkHoursSummary({
               inner += `<div class="cal-in">↓ ${formatTime(r.clock_in)}</div>`;
               inner += r.clock_out
                 ? `<div class="cal-out">↑ ${formatTime(r.clock_out)}</div>`
-                : `<div class="cal-missing">יציאה חסרה</div>`;
+                : `<div class="cal-missing">${openShiftLabel(r)}</div>`;
               if (r.clock_out)
                 inner += `<div class="cal-hours">${parseHours(r.clock_in, r.clock_out).toFixed(1)}ש׳</div>`;
             });
@@ -646,7 +647,7 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
             const isWeekend = dow === 5 || dow === 6;
             const dayRecords = recordsByDay.get(day) ?? [];
             const hasRecords = dayRecords.length > 0;
-            const hasMissing = dayRecords.some((r) => !r.clock_out);
+            const hasMissing = dayRecords.some((r) => isMissingClockOut(r));
             const dayReqs = dayRecords.flatMap((r) => requestsForAttendanceRecord(r, requests, dayRecords));
             const hasChange = dayReqs.length > 0;
             const hasPendingReq = dayRecords.some((rec) =>
@@ -731,7 +732,9 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
                               <span className="text-slate-600">{formatTime(r.clock_out)}</span>
                             </>
                           ) : (
-                            <span className="text-[9px] font-bold text-rose-500">יציאה חסרה</span>
+                            <span className={`text-[9px] font-bold ${isActiveOpenShift(r) ? 'text-emerald-600' : 'text-rose-500'}`}>
+                              {openShiftLabel(r)}
+                            </span>
                           )}
                         </div>
                         {r.clock_out && (
@@ -767,7 +770,7 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
                           </div>
                           <div className="flex items-center justify-between gap-4 text-[11px]">
                             <span className="text-slate-500">יציאה</span>
-                            <span className="font-bold text-slate-700">{formatTime(r.clock_out) || '—'}</span>
+                            <span className="font-bold text-slate-700">{formatTime(r.clock_out) || openShiftLabel(r)}</span>
                           </div>
                           {r.clock_out && (
                             <div className="flex items-center justify-between gap-4 text-[11px]">
@@ -859,7 +862,7 @@ function ListCard({ summary, requests, onReload }: { summary: EmpSummary; reques
           const dow = d.getDay();
           const isWeekend = dow === 5 || dow === 6;
           const dayHours = recs.reduce((s, r) => s + parseHours(r.clock_in, r.clock_out), 0);
-          const hasMissing = recs.some((r) => !r.clock_out);
+          const hasMissing = recs.some((r) => isMissingClockOut(r));
 
           return (
             <div
@@ -925,7 +928,9 @@ function ListCard({ summary, requests, onReload }: { summary: EmpSummary; reques
                         {r.clock_out ? (
                           <div className="text-sm font-bold text-slate-700">{formatTime(r.clock_out)}</div>
                         ) : (
-                          <div className="text-sm font-bold text-rose-500">חסרה</div>
+                          <div className={`text-sm font-bold ${isActiveOpenShift(r) ? 'text-emerald-600' : 'text-rose-500'}`}>
+                            {openShiftLabel(r)}
+                          </div>
                         )}
                       </div>
                     </div>

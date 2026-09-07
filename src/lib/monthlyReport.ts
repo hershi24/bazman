@@ -1,6 +1,7 @@
 import type { Attendance, EmployeeRequest, Profile } from '@/types';
 import { formatHebrewDate, formatTime } from '@/lib/format';
 import { hoursAdjustmentSummary, originalHoursSummary, parseHoursAdjustment, effectiveRequestDecision, israelDateKey, isHoursAdjustmentType, shiftLabel } from '@/lib/hoursAdjustment';
+import { isMissingClockOut, openShiftLabel } from '@/lib/attendanceDay';
 
 export const MONTH_NAMES = [
   'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
@@ -180,7 +181,7 @@ export function computeMonthlySummary(records: Attendance[], requests: EmployeeR
     approved: sorted.filter((r) => r.status === 'approved').length,
     pending: sorted.filter((r) => r.status === 'pending').length,
     rejected: sorted.filter((r) => r.status === 'rejected').length,
-    missingClockOut: sorted.filter((r) => !r.clock_out).length,
+    missingClockOut: sorted.filter((r) => isMissingClockOut(r)).length,
     changeRequests,
   };
 }
@@ -199,7 +200,7 @@ function buildReportRows(records: Attendance[], requests: EmployeeRequest[]): st
         <td class="date">${formatHebrewDate(r.clock_in)}${shift ? `<div class="shift">${shift}</div>` : ''}</td>
         <td class="${isWeekend ? 'weekend-day' : ''}">${DAY_NAMES_LONG[dow]}</td>
         <td class="in">${formatTime(r.clock_in)}</td>
-        <td class="out">${formatTime(r.clock_out) || '<span class="missing">יציאה חסרה</span>'}</td>
+        <td class="out">${formatTime(r.clock_out) || `<span class="missing">${openShiftLabel(r)}</span>`}</td>
         <td class="hours">${hours}</td>
         <td>${r.location_verified || r.qr_verified ? 'מאומת' : 'לא מאומת'}</td>
         <td class="change">${changeCell}</td>
@@ -330,7 +331,7 @@ export function downloadMonthlyReportCsv(
       attendanceShiftCaption(r, summary.records) || 'משמרת 1',
       DAY_NAMES_LONG[d.getDay()],
       formatTime(r.clock_in),
-      r.clock_out ? formatTime(r.clock_out) : 'יציאה חסרה',
+      r.clock_out ? formatTime(r.clock_out) : openShiftLabel(r),
       hours,
       r.location_verified || r.qr_verified ? 'מאומת' : 'לא מאומת',
       formatChangeRequestsPlain(dayReqs, r),

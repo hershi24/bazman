@@ -12,6 +12,7 @@ import {
   parseHoursAdjustment,
   setRequestStatus,
 } from '@/lib/hoursAdjustment';
+import { isMissingClockOut } from '@/lib/attendanceDay';
 
 export function RequestsTable({
   requests,
@@ -329,14 +330,7 @@ export function MissingAttendanceTable({
 }) {
   const [page, setPage] = useState(0);
   const pageSize = 6;
-  const todayMidnight = new Date();
-  todayMidnight.setHours(0, 0, 0, 0);
-  const flagged = attendance.filter((a) => {
-    if (a.clock_out) return false;
-    const day = new Date(a.clock_in);
-    day.setHours(0, 0, 0, 0);
-    return day.getTime() < todayMidnight.getTime();
-  });
+  const flagged = attendance.filter((a) => isMissingClockOut(a));
   const pages = Math.max(1, Math.ceil(flagged.length / pageSize));
   const current = flagged.slice(page * pageSize, page * pageSize + pageSize);
 

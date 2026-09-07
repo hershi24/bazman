@@ -18,6 +18,7 @@ import { Card, SectionTitle, Avatar, Badge } from '@/components/ui';
 import WorkHoursSummary from '@/components/manager/WorkHoursSummary';
 import { managerDeleteAttendance, managerInsertAttendance } from '@/lib/managerAttendance';
 import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
+import { isActiveOpenShift, isMissingClockOut, isTodayAttendance } from '@/lib/attendanceDay';
 import { formatChangeRequestsPlain, requestsForAttendanceRecord, attendanceShiftCaption } from '@/lib/monthlyReport';
 import type { Profile, Attendance, Shift, EmployeeRequest, Reminder, Expense, QuickSticker, ProfileField, AllowedLocation, EmployeeLocation, Department } from '@/types';
 
@@ -706,9 +707,7 @@ function ModalField({
 /* ==================== OTHER PAGES ==================== */
 
 function PresentEmployees({ attendance }: { attendance: Attendance[] }) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const present = attendance.filter((a) => a.clock_in && new Date(a.clock_in) >= today && !a.clock_out);
+  const present = attendance.filter((a) => isActiveOpenShift(a));
   return (
     <Card>
       <SectionTitle title="עובדים שנוכחים כרגע" icon={<UserPlus className="h-5 w-5" />} action={<Badge color="green">{present.length} נוכחים</Badge>} />
@@ -1184,7 +1183,7 @@ function DepartmentsPage({ departments, onReload }: { departments: Department[];
 /* ==================== REPORTS & OTHER PAGES ==================== */
 
 function ExceptionsPage({ attendance, onReload }: { attendance: Attendance[]; onReload: () => void }) {
-  const flagged = attendance.filter((a) => !a.clock_out || !a.location_verified);
+  const flagged = attendance.filter((a) => isMissingClockOut(a) || !a.location_verified);
   async function approve(id: string) {
     await supabase.from('attendance').update({ status: 'approved' }).eq('id', id);
     onReload();
@@ -1195,7 +1194,7 @@ function ExceptionsPage({ attendance, onReload }: { attendance: Attendance[]; on
       <div className="divide-y divide-slate-100">
         {flagged.length === 0 && <p className="px-5 py-10 text-center text-sm text-slate-400">אין חריגות</p>}
         {flagged.map((a) => {
-          const issue = !a.clock_out ? 'יציאה חסרה' : 'מיקום לא מאומת';
+          const issue = isMissingClockOut(a) ? 'יציאה חסרה' : 'מיקום לא מאומת';
           return (
             <div key={a.id} className="flex items-center justify-between px-5 py-3">
               <div className="flex items-center gap-2.5">
@@ -1422,15 +1421,14 @@ function EditAttendanceModal({ row, onClose, onSaved }: { row: Attendance; onClo
 
 
 function SpecialReportsPage({ attendance, profiles }: { attendance: Attendance[]; profiles: Profile[] }) {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const todayAtt = attendance.filter((a) => a.clock_in && new Date(a.clock_in) >= today);
+  const todayAtt = attendance.filter((a) => isTodayAttendance(a));
   return (
     <Card>
       <SectionTitle title="דיווחים מיוחדים" icon={<FileText className="h-5 w-5" />} />
       <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-3">
         <StatBox label="דיווחים היום" value={todayAtt.length} color="brand" />
         <StatBox label="עובדים פעילים" value={profiles.filter((p) => p.role === 'employee' && p.status === 'active').length} color="emerald" />
-        <StatBox label="דיווחים ללא יציאה" value={attendance.filter((a) => !a.clock_out).length} color="rose" />
+        <StatBox label="דיווחים ללא יציאה" value={attendance.filter((a) => isMissingClockOut(a)).length} color="rose" />
       </div>
       <div className="px-5 pb-5">
         <p className="text-sm text-slate-500">כאן ניתן יהיה ליצור דיווחים מיוחדים עבור עובדים — ימי מחלה, חופשה, שעות נוספות ועוד. הדיווחים יופיעו בדוחות החודשיים.</p>
@@ -1871,8 +1869,7 @@ function RestoreEmployeesPage({ profiles, onReload }: { profiles: Profile[]; onR
 }
 
 function NoReportsPage({ attendance, profiles }: { attendance: Attendance[]; profiles: Profile[] }) {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const reportedIds = new Set(attendance.filter((a) => a.clock_in && new Date(a.clock_in) >= today).map((a) => a.user_id));
+  const reportedIds = new Set(attendance.filter((a) => isTodayAttendance(a)).map((a) => a.user_id));
   const noReport = profiles.filter((p) => p.role === 'employee' && p.status === 'active' && !reportedIds.has(p.id));
   return (
     <Card>
@@ -1981,8 +1978,7 @@ function CompareShiftsPage({ shifts, attendance, profiles }: { shifts: Shift[]; 
 }
 
 function DailyAttendancePage({ attendance }: { attendance: Attendance[] }) {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const todayAtt = attendance.filter((a) => a.clock_in && new Date(a.clock_in) >= today);
+  const todayAtt = attendance.filter((a) => isTodayAttendance(a));
   return (
     <Card>
       <SectionTitle title="דוח נוכחות יומי" icon={<FileText className="h-5 w-5" />} action={<Badge color="blue">{todayAtt.length} דיווחים</Badge>} />
@@ -2033,8 +2029,7 @@ function SummaryExportPage({ attendance, profiles, expenses }: { attendance: Att
 }
 
 function AbsencesPage({ attendance, profiles }: { attendance: Attendance[]; profiles: Profile[] }) {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const presentIds = new Set(attendance.filter((a) => a.clock_in && new Date(a.clock_in) >= today).map((a) => a.user_id));
+  const presentIds = new Set(attendance.filter((a) => isTodayAttendance(a)).map((a) => a.user_id));
   const absent = profiles.filter((p) => p.role === 'employee' && p.status === 'active' && !presentIds.has(p.id));
   return (
     <Card>
@@ -2126,7 +2121,7 @@ function DailyDetailPage({ attendance, requests }: { attendance: Attendance[]; r
 }
 
 function SignReportsPage({ attendance, onReload }: { attendance: Attendance[]; onReload: () => void }) {
-  const flagged = attendance.filter((a) => !a.clock_out || !a.location_verified);
+  const flagged = attendance.filter((a) => isMissingClockOut(a) || !a.location_verified);
   async function sign(id: string) { await supabase.from('attendance').update({ status: 'approved' }).eq('id', id); onReload(); }
   return (
     <Card>
@@ -2145,7 +2140,7 @@ function SignReportsPage({ attendance, onReload }: { attendance: Attendance[]; o
               <div key={a.id} className="flex items-center justify-between px-5 py-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-700">{a.profile?.full_name ?? '—'}</p>
-                  <p className="text-[11px] text-slate-400">{formatHebrewDate(a.clock_in)} · {formatTime(a.clock_in)} → {formatTime(a.clock_out) || '...'} · {!a.clock_out ? 'יציאה חסרה' : 'מיקום לא מאומת'}</p>
+                  <p className="text-[11px] text-slate-400">{formatHebrewDate(a.clock_in)} · {formatTime(a.clock_in)} → {formatTime(a.clock_out) || '...'} · {isMissingClockOut(a) ? 'יציאה חסרה' : 'מיקום לא מאומת'}</p>
                 </div>
                 <button onClick={() => sign(a.id)} className="rounded-lg bg-brand-100 px-3 py-1.5 text-xs font-bold text-brand-700 hover:bg-brand-200">אשר דיווח</button>
               </div>

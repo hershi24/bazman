@@ -97,6 +97,10 @@ Deno.serve(async (req: Request) => {
       const patch: Record<string, unknown> = {};
       if (clockIn) patch.clock_in = toIso(clockIn);
       if (clockOut) patch.clock_out = toIso(clockOut);
+      const startIso = String(patch.clock_in ?? existing?.clock_in ?? '');
+      if (startIso && patch.clock_out && new Date(String(patch.clock_out)).getTime() <= new Date(startIso).getTime()) {
+        patch.clock_out = new Date(new Date(String(patch.clock_out)).getTime() + 24 * 60 * 60 * 1000).toISOString();
+      }
       if (existing) {
         const { error } = await adminClient.from('attendance').update(patch).eq('id', existing.id);
         if (error) {

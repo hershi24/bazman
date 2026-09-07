@@ -1,18 +1,13 @@
-import { useState } from 'react';
 import { CalendarCheck, Bell, Check, Plus } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { Avatar, Badge, Card, SectionTitle } from '@/components/ui';
 import { formatTime, relativeDays } from '@/lib/format';
 import type { Attendance, Reminder } from '@/types';
 import { useAuth } from '@/lib/auth';
+import { isTodayAttendance } from '@/lib/attendanceDay';
 
 export function TodayAttendance({ attendance }: { attendance: Attendance[] }) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayRows = attendance.filter((a) => {
-    if (!a.clock_in) return false;
-    return new Date(a.clock_in) >= today;
-  });
+  const todayRows = attendance.filter((a) => isTodayAttendance(a));
   const present = todayRows.filter((a) => a.clock_in && !a.clock_out);
 
   return (
