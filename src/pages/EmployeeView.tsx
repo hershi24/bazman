@@ -39,6 +39,7 @@ import {
   formatChangeRequestsPlain,
   requestsForAttendanceRecord,
   attendanceShiftCaption,
+  DAY_NAMES_LONG,
 } from '@/lib/monthlyReport';
 import {
   formatHoursAdjustmentPayload,
@@ -729,6 +730,135 @@ function ClockPanel() {
   );
 }
 
+const DAY_SHORT = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+
+function WorkDateCalendar({
+  value,
+  onChange,
+  workDays,
+  monthKeyStr,
+  onMonthChange,
+}: {
+  value: string;
+  onChange: (date: string) => void;
+  workDays: Set<string>;
+  monthKeyStr: string;
+  onMonthChange: (key: string) => void;
+}) {
+  const [y, m] = monthKeyStr.split('-').map(Number);
+  const firstDay = new Date(y, m - 1, 1);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const startOffset = firstDay.getDay();
+  const todayKey = localDateKey(new Date().toISOString());
+  const workCount = Array.from(workDays).filter((k) => k.startsWith(monthKeyStr)).length;
+
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  function dayKey(day: number): string {
+    return `${monthKeyStr}-${String(day).padStart(2, '0')}`;
+  }
+
+  function shiftMonth(dir: number) {
+    onMonthChange(monthKey(new Date(y, m - 1 + dir, 1)));
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => shiftMonth(-1)}
+          className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+          aria-label="חודש קודם"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-brand-600" />
+          <span className="text-sm font-extrabold text-slate-800">{monthLabel(monthKeyStr)}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => shiftMonth(1)}
+          className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+          aria-label="חודש הבא"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="mb-1 grid grid-cols-7 gap-1">
+        {DAY_SHORT.map((name, i) => (
+          <div
+            key={name}
+            className={`pb-1 text-center text-[11px] font-bold ${
+              i === 5 ? 'text-amber-600' : i === 6 ? 'text-rose-500' : 'text-slate-400'
+            }`}
+            title={DAY_NAMES_LONG[i]}
+          >
+            {name}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((day, idx) => {
+          if (day === null) return <div key={`e-${idx}`} className="h-10" />;
+          const key = dayKey(day);
+          const worked = workDays.has(key);
+          const selected = value === key;
+          const isToday = key === todayKey;
+          const dow = (startOffset + day - 1) % 7;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onChange(key)}
+              className={`relative flex h-10 flex-col items-center justify-center rounded-xl text-sm font-bold transition ${
+                selected
+                  ? 'bg-brand-600 text-white shadow-sm'
+                  : worked
+                    ? 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                    : isToday
+                      ? 'border border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100'
+                      : dow === 6
+                        ? 'text-rose-400 hover:bg-rose-50'
+                        : dow === 5
+                          ? 'text-amber-600 hover:bg-amber-50'
+                          : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <span>{day}</span>
+              {worked && (
+                <span
+                  className={`absolute bottom-1 h-1.5 w-1.5 rounded-full ${selected ? 'bg-white' : 'bg-emerald-500'}`}
+                  aria-hidden
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          יום עבודה
+          {workCount > 0 ? ` · ${workCount} החודש` : ''}
+        </span>
+        {value ? (
+          <span className="font-semibold text-slate-700">נבחר: {formatHebrewDate(value)}</span>
+        ) : (
+          <span>בחרו תאריך לתיקון</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- Request panel ---------------- */
 function RequestPanel() {
   const { profile } = useAuth();
@@ -746,6 +876,8 @@ function RequestPanel() {
   const [myRequests, setMyRequests] = useState<EmployeeRequest[]>([]);
   const [dayShifts, setDayShifts] = useState<Attendance[]>([]);
   const [selectedShiftId, setSelectedShiftId] = useState('');
+  const [calMonth, setCalMonth] = useState(() => monthKey(new Date()));
+  const [workDays, setWorkDays] = useState<Set<string>>(() => new Set());
 
   const hoursMode = isHoursAdjustmentType(type);
 
@@ -763,6 +895,27 @@ function RequestPanel() {
     loadMine();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!profile) return;
+    const { start, end } = monthDateRange(calMonth);
+    const startPad = new Date(new Date(start).getTime() - 86400000).toISOString();
+    const endPad = new Date(new Date(end).getTime() + 86400000).toISOString();
+    (async () => {
+      const { data } = await supabase
+        .from('attendance')
+        .select('clock_in')
+        .eq('user_id', profile.id)
+        .gte('clock_in', startPad)
+        .lte('clock_in', endPad);
+      const keys = new Set(
+        ((data as { clock_in: string | null }[]) ?? [])
+          .map((r) => localDateKey(r.clock_in))
+          .filter((k) => k.startsWith(calMonth)),
+      );
+      setWorkDays(keys);
+    })();
+  }, [profile, calMonth]);
 
   useEffect(() => {
     if (!hoursMode || !date || !profile) {
@@ -901,12 +1054,15 @@ function RequestPanel() {
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
               תאריך מבוקש {hoursMode ? <span className="text-rose-500">*</span> : null}
             </label>
-            <input
-              type="date"
-              required={hoursMode}
+            <p className="mb-2 text-xs text-slate-500">
+              ימים שעבדת מסומנים בירוק עם נקודה — כך קל לבחור איזה תאריך לתקן.
+            </p>
+            <WorkDateCalendar
               value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
+              onChange={setDate}
+              workDays={workDays}
+              monthKeyStr={calMonth}
+              onMonthChange={setCalMonth}
             />
           </div>
           {hoursMode && dayShifts.length > 1 && (
