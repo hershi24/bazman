@@ -13,6 +13,7 @@ import {
   LogOut,
   List,
   Pencil,
+  Plus,
   Save,
   X,
   Loader2,
@@ -23,12 +24,16 @@ import { supabase } from '@/lib/supabase';
 import type { Attendance, EmployeeRequest, Profile } from '@/types';
 import { formatChangeRequestHtml, requestsForAttendanceDay, requestsForAttendanceRecord, attendanceShiftCaption } from '@/lib/monthlyReport';
 import {
+  combineLocalDateTime,
+  combineOvernightClockOut,
   effectiveRequestDecision,
   hoursAdjustmentSummary,
+  israelDateKey,
   originalHoursSummary,
   parseHoursAdjustment,
 } from '@/lib/hoursAdjustment';
 import { isActiveOpenShift, isMissingClockOut, openShiftLabel } from '@/lib/attendanceDay';
+import { managerInsertAttendance } from '@/lib/managerAttendance';
 
 function toDateTimeLocal(iso: string | null): string {
   if (!iso) return '';
@@ -53,6 +58,18 @@ const DAY_NAMES_SHORT = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳']
 
 function monthKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthDayKeys(monthKeyStr: string): string[] {
+  const [y, m] = monthKeyStr.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return Array.from({ length: last }, (_, i) => `${y}-${pad(m)}-${pad(i + 1)}`);
+}
+
+function dateFromKey(dayKey: string): Date {
+  const [y, m, d] = dayKey.split('-').map(Number);
+  return new Date(y, m - 1, d);
 }
 
 function monthLabel(key: string) {
@@ -160,9 +177,12 @@ export default function WorkHoursSummary({
     attendance.forEach((a) => {
       if (a.clock_in) set.add(monthKey(new Date(a.clock_in)));
     });
-    set.add(monthKey(now));
+    const base = new Date();
+    for (let i = -18; i <= 2; i++) {
+      set.add(monthKey(new Date(base.getFullYear(), base.getMonth() + i, 1)));
+    }
     return Array.from(set).sort().reverse();
-  }, [attendance, now]);
+  }, [attendance]);
 
   const employees = useMemo(
     () => profiles.filter((p) => p.role === 'employee' && p.status === 'active'),
@@ -192,19 +212,19 @@ export default function WorkHoursSummary({
       const records = (byEmp.get(p.id) ?? []).sort(
         (a, b) => new Date(a.clock_in!).getTime() - new Date(b.clock_in!).getTime(),
       );
-      if (records.length === 0) return;
+      if (records.length === 0 && selectedEmp !== p.id) return;
       const totalHours = records.reduce((sum, r) => sum + parseHours(r.clock_in, r.clock_out), 0);
       result.push({
         profile: p,
         records,
         totalHours,
-        daysWorked: records.length,
+        daysWorked: new Set(records.map((r) => israelDateKey(r.clock_in)).filter(Boolean)).size,
         changeRequestCount: records.filter((r) => requestsForAttendanceDay(r.user_id, r.clock_in, requests).length > 0).length,
         missingClockOut: records.filter((r) => isMissingClockOut(r)).length,
       });
     });
     return result.sort((a, b) => b.totalHours - a.totalHours);
-  }, [filtered, employees, requests]);
+  }, [filtered, employees, requests, selectedEmp]);
 
   const grandTotalHours = summaries.reduce((s, e) => s + e.totalHours, 0);
   const grandTotalDays = summaries.reduce((s, e) => s + e.daysWorked, 0);
@@ -492,19 +512,19 @@ export default function WorkHoursSummary({
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <FileText className="h-12 w-12 text-slate-300" />
             <p className="mt-4 text-sm font-medium text-slate-500">אין דיווחים לתקופה ולעובד שנבחרו</p>
-            <p className="mt-1 text-xs text-slate-400">נסה לבחור חודש או עובד אחר</p>
+            <p className="mt-1 text-xs text-slate-400">בחרו עובד ספציפי כדי להוסיף דיווח נוכחות לימי החודש</p>
           </div>
         </Card>
       ) : view === 'list' ? (
         <div className="space-y-5">
           {summaries.map((s) => (
-            <ListCard key={s.profile.id} summary={s} requests={requests} onReload={onReload} />
+            <ListCard key={s.profile.id} summary={s} monthKeyStr={selectedMonth} requests={requests} onReload={onReload} />
           ))}
         </div>
       ) : (
         <div className="space-y-5">
           {summaries.map((s) => (
-            <CalendarCard key={s.profile.id} summary={s} monthKeyStr={selectedMonth} requests={requests} />
+            <CalendarCard key={s.profile.id} summary={s} monthKeyStr={selectedMonth} requests={requests} onReload={onReload} />
           ))}
         </div>
       )}
@@ -539,7 +559,18 @@ function KpiTile({
 }
 
 /* ---------- Calendar card ---------- */
-function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary; monthKeyStr: string; requests: EmployeeRequest[] }) {
+function CalendarCard({
+  summary,
+  monthKeyStr,
+  requests,
+  onReload,
+}: {
+  summary: EmpSummary;
+  monthKeyStr: string;
+  requests: EmployeeRequest[];
+  onReload: () => void;
+}) {
+  const [addDay, setAddDay] = useState<string | null>(null);
   const [y, m] = monthKeyStr.split('-').map(Number);
   const firstDay = new Date(y, m - 1, 1);
   const daysInMonth = new Date(y, m, 0).getDate();
@@ -548,12 +579,13 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
   const recordsByDay = new Map<number, Attendance[]>();
   summary.records.forEach((r) => {
     if (!r.clock_in) return;
-    const d = new Date(r.clock_in);
-    if (d.getFullYear() === y && d.getMonth() + 1 === m) {
-      const arr = recordsByDay.get(d.getDate()) ?? [];
-      arr.push(r);
-      recordsByDay.set(d.getDate(), arr);
-    }
+    const key = israelDateKey(r.clock_in);
+    if (!key.startsWith(monthKeyStr)) return;
+    const day = Number(key.slice(8, 10));
+    if (!day) return;
+    const arr = recordsByDay.get(day) ?? [];
+    arr.push(r);
+    recordsByDay.set(day, arr);
   });
 
   // Weekly subtotals
@@ -688,7 +720,7 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
                 }`}
               >
                 {/* Day number */}
-                <div className="mb-1 flex items-center justify-between">
+                <div className="mb-1 flex items-center justify-between gap-0.5">
                   <span
                     className={`text-xs font-bold ${
                       isWeekend
@@ -698,19 +730,32 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
                   >
                     {day}
                   </span>
-                  {hasRecords && (hasChange || hasMissing) && (
-                    <span
-                      className={`h-2 w-2 rounded-full ${
-                        hasMissing || hasRejectedReq
-                          ? 'bg-rose-500'
-                          : hasPendingReq
-                            ? 'bg-amber-500'
-                            : hasChangedReq
-                              ? 'bg-sky-500'
-                              : 'bg-emerald-500'
-                      }`}
-                    />
-                  )}
+                  <div className="flex items-center gap-0.5">
+                    {hasRecords && (hasChange || hasMissing) && (
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          hasMissing || hasRejectedReq
+                            ? 'bg-rose-500'
+                            : hasPendingReq
+                              ? 'bg-amber-500'
+                              : hasChangedReq
+                                ? 'bg-sky-500'
+                                : 'bg-emerald-500'
+                        }`}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAddDay(`${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+                      }}
+                      className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-600 text-white shadow-sm transition hover:bg-brand-700"
+                      title="הוסף דיווח נוכחות"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Records */}
@@ -813,27 +858,55 @@ function CalendarCard({ summary, monthKeyStr, requests }: { summary: EmpSummary;
           <span className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> נדחה / יציאה חסרה
           </span>
+          <span className="flex items-center gap-1.5">
+            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-brand-600 text-white">
+              <Plus className="h-2.5 w-2.5" />
+            </span>{' '}
+            הוסף דיווח נוכחות
+          </span>
         </div>
       </div>
+
+      {addDay && (
+        <AddAttendanceModal
+          userId={summary.profile.id}
+          employeeName={summary.profile.full_name}
+          date={addDay}
+          onClose={() => setAddDay(null)}
+          onSaved={() => {
+            setAddDay(null);
+            onReload();
+          }}
+        />
+      )}
     </Card>
   );
 }
 
 /* ---------- List card (vertical day-by-day) ---------- */
-function ListCard({ summary, requests, onReload }: { summary: EmpSummary; requests: EmployeeRequest[]; onReload: () => void }) {
+function ListCard({
+  summary,
+  monthKeyStr,
+  requests,
+  onReload,
+}: {
+  summary: EmpSummary;
+  monthKeyStr: string;
+  requests: EmployeeRequest[];
+  onReload: () => void;
+}) {
   const [editing, setEditing] = useState<Attendance | null>(null);
-  // Group records by day
+  const [addDay, setAddDay] = useState<string | null>(null);
   const byDay = new Map<string, Attendance[]>();
   summary.records.forEach((r) => {
     if (!r.clock_in) return;
-    const key = new Date(r.clock_in).toDateString();
+    const key = israelDateKey(r.clock_in);
+    if (!key.startsWith(monthKeyStr)) return;
     const arr = byDay.get(key) ?? [];
     arr.push(r);
     byDay.set(key, arr);
   });
-  const dayEntries = Array.from(byDay.entries()).sort(
-    (a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime(),
-  );
+  const dayKeys = monthDayKeys(monthKeyStr);
 
   return (
     <Card>
@@ -857,10 +930,12 @@ function ListCard({ summary, requests, onReload }: { summary: EmpSummary; reques
 
       {/* Day list */}
       <div className="divide-y divide-slate-100">
-        {dayEntries.map(([dayKey, recs]) => {
-          const d = new Date(dayKey);
+        {dayKeys.map((dayKey) => {
+          const recs = byDay.get(dayKey) ?? [];
+          const d = dateFromKey(dayKey);
           const dow = d.getDay();
           const isWeekend = dow === 5 || dow === 6;
+          const hasRecords = recs.length > 0;
           const dayHours = recs.reduce((s, r) => s + parseHours(r.clock_in, r.clock_out), 0);
           const hasMissing = recs.some((r) => isMissingClockOut(r));
 
@@ -892,14 +967,14 @@ function ListCard({ summary, requests, onReload }: { summary: EmpSummary; reques
                 <div className="hidden sm:block">
                   <span className={`text-xs font-medium ${
                     isWeekend ? (dow === 6 ? 'text-rose-500' : 'text-amber-500') : 'text-slate-400'
-                  }`}>{formatHebrewDate(recs[0].clock_in)}</span>
+                  }`}>{formatHebrewDate(d)}</span>
                 </div>
               </div>
 
               {/* Records column */}
               <div className="flex flex-1 flex-col gap-2">
-                {recs.map((r, ri) => (
-                  <div key={ri} className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                {hasRecords ? recs.map((r, ri) => (
+                  <div key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
                     {recs.length > 1 && (
                       <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-extrabold text-indigo-700">
                         משמרת {ri + 1}
@@ -972,15 +1047,25 @@ function ListCard({ summary, requests, onReload }: { summary: EmpSummary; reques
                       <Pencil className="h-4 w-4" />
                     </button>
                   </div>
-                ))}
+                )) : (
+                  <p className="text-sm font-medium text-slate-400">אין דיווח נוכחות</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setAddDay(dayKey)}
+                  className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-dashed border-brand-300 bg-brand-50/60 px-2.5 py-1.5 text-[11px] font-bold text-brand-700 transition hover:bg-brand-100"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {hasRecords ? 'הוסף משמרת נוספת' : 'הוסף דיווח נוכחות'}
+                </button>
               </div>
 
               {/* Day subtotal */}
               <div className="shrink-0 text-left sm:w-20">
                 <div className="text-[10px] text-slate-400">סה״כ יומי</div>
                 <div className={`text-lg font-extrabold ${
-                  hasMissing ? 'text-rose-600' : 'text-brand-700'
-                }`}>{dayHours.toFixed(1)}</div>
+                  !hasRecords ? 'text-slate-300' : hasMissing ? 'text-rose-600' : 'text-brand-700'
+                }`}>{hasRecords ? dayHours.toFixed(1) : '—'}</div>
                 <div className="text-[10px] text-slate-400">שעות</div>
               </div>
             </div>
@@ -1000,6 +1085,18 @@ function ListCard({ summary, requests, onReload }: { summary: EmpSummary; reques
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            onReload();
+          }}
+        />
+      )}
+      {addDay && (
+        <AddAttendanceModal
+          userId={summary.profile.id}
+          employeeName={summary.profile.full_name}
+          date={addDay}
+          onClose={() => setAddDay(null)}
+          onSaved={() => {
+            setAddDay(null);
             onReload();
           }}
         />
@@ -1079,6 +1176,96 @@ function EditRecordModal({
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {busy ? 'שומר...' : 'שמור שינויים'}
+          </button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Add attendance modal ---------- */
+function AddAttendanceModal({
+  userId,
+  employeeName,
+  date,
+  onClose,
+  onSaved,
+}: {
+  userId: string;
+  employeeName: string;
+  date: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [clockIn, setClockIn] = useState('08:00');
+  const [clockOut, setClockOut] = useState('17:00');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    if (!clockIn) {
+      setErr('נא לבחור שעת כניסה.');
+      return;
+    }
+    if (clockOut && clockOut === clockIn) {
+      setErr('שעת היציאה צריכה להיות אחרי שעת הכניסה.');
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    const clockInIso = combineLocalDateTime(date, clockIn);
+    const clockOutIso = clockOut ? combineOvernightClockOut(date, clockOut, clockInIso) : null;
+    const result = await managerInsertAttendance({ userId, clockIn: clockInIso, clockOut: clockOutIso });
+    if (result.error) {
+      setErr(result.error);
+      setBusy(false);
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <Card className="w-full max-w-md p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-bold text-slate-800">הוספת דיווח נוכחות</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <p className="mb-1 text-sm font-medium text-slate-700">{employeeName}</p>
+        <p className="mb-4 text-xs text-slate-500">{formatHebrewDate(dateFromKey(date))}</p>
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">שעת כניסה</label>
+            <input
+              type="time"
+              value={clockIn}
+              onChange={(e) => setClockIn(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">שעת יציאה</label>
+            <input
+              type="time"
+              value={clockOut}
+              onChange={(e) => setClockOut(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">אם היציאה מוקדמת מהכניסה, היא תישמר ליום הבא (משמרת לילה)</p>
+          </div>
+        </div>
+        {err && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{err}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100">ביטול</button>
+          <button
+            onClick={save}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-700 disabled:opacity-60"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            {busy ? 'שומר...' : 'הוסף דיווח'}
           </button>
         </div>
       </Card>
