@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase';
-import { DEVELOPER_EMAIL } from '@/lib/developerAccount';
 
 export const FEEDBACK_CATEGORIES = ['הצעה', 'הערה', 'תקלה', 'אחר'] as const;
 export type FeedbackCategory = (typeof FEEDBACK_CATEGORIES)[number];
@@ -27,37 +26,6 @@ function feedbackDescription(payload: DeveloperFeedbackPayload): string {
     '',
     payload.message.trim(),
   ].join('\n');
-}
-
-function feedbackBody(payload: DeveloperFeedbackPayload) {
-  return {
-    _subject: `BeZman — ${payload.category} מ${payload.senderName}`,
-    _template: 'table',
-    _captcha: 'false',
-    _replyto: payload.senderEmail || undefined,
-    name: payload.senderName,
-    employee_number: payload.employeeNumber || '',
-    email: payload.senderEmail || '',
-    category: payload.category,
-    message: payload.message,
-  };
-}
-
-export async function sendViaFormSubmit(payload: DeveloperFeedbackPayload): Promise<boolean> {
-  try {
-    const res = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(DEVELOPER_EMAIL)}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(feedbackBody(payload)),
-    });
-    const json = (await res.json().catch(() => ({}))) as { success?: boolean | string };
-    return res.ok && (json.success === true || json.success === 'true');
-  } catch {
-    return false;
-  }
 }
 
 async function saveFeedbackRow(payload: DeveloperFeedbackPayload): Promise<boolean> {
@@ -114,10 +82,9 @@ export async function sendDeveloperFeedback(
 
   if (await sendViaEdgeFunction(payload)) return { error: null };
 
-  const emailed = await sendViaFormSubmit(payload);
   const savedRequest = await saveAsRequest(payload);
   const savedRow = await saveFeedbackRow(payload);
-  if (emailed || savedRequest || savedRow) return { error: null };
+  if (savedRequest || savedRow) return { error: null };
 
   return { error: 'לא ניתן לשלוח כרגע. נסו שוב בעוד כמה דקות.' };
 }

@@ -10,7 +10,6 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const DEVELOPER_EMAIL = Deno.env.get('DEVELOPER_EMAIL') || 'e0583296967@gmail.com';
-const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') ?? '';
 
 const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -23,46 +22,54 @@ function json(body: unknown, status = 200) {
   });
 }
 
-async function sendViaResend(subject: string, html: string, replyTo?: string | null) {
-  if (!RESEND_API_KEY) return false;
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: 'BeZman <onboarding@resend.dev>',
-      to: [DEVELOPER_EMAIL],
-      subject,
-      html,
-      reply_to: replyTo || undefined,
-    }),
-  });
-  return res.ok;
+function resendApiKey(): string {
+  return (
+    Deno.env.get('RESEND_API_KEY') ||
+    Deno.env.get('SMTP_PASS') ||
+    Deno.env.get('SMTP_PASSWORD') ||
+    ''
+  ).trim();
 }
 
-async function sendViaFormSubmit(fields: Record<string, string>) {
-  const res = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(DEVELOPER_EMAIL)}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      _subject: fields.subject,
-      _template: 'table',
-      _captcha: 'false',
-      _replyto: fields.email || undefined,
-      name: fields.name,
-      employee_number: fields.employee_number,
-      email: fields.email,
-      category: fields.category,
-      message: fields.message,
-    }),
-  });
-  const json = await res.json().catch(() => ({}));
-  return res.ok && (json.success === true || json.success === 'true');
+function resendFromAddresses(): string[] {
+  const configured = (
+    Deno.env.get('RESEND_FROM') ||
+    Deno.env.get('MAIL_FROM') ||
+    Deno.env.get('SMTP_ADMIN_EMAIL') ||
+    Deno.env.get('SMTP_SENDER') ||
+    ''
+  ).trim();
+  return [...new Set(
+    [
+      configured,
+      'BeZman <noreply@bezman.co.il>',
+      'BeZman <manager@bezman.co.il>',
+      'BeZman <onboarding@resend.dev>',
+    ].filter(Boolean),
+  )];
+}
+
+async function sendViaResend(subject: string, html: string, replyTo?: string | null) {
+  const apiKey = resendApiKey();
+  if (!apiKey) return false;
+  for (const from of resendFromAddresses()) {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: [DEVELOPER_EMAIL],
+        subject,
+        html,
+        reply_to: replyTo || undefined,
+      }),
+    });
+    if (res.ok) return true;
+  }
+  return false;
 }
 
 Deno.serve(async (req: Request) => {
@@ -135,16 +142,7 @@ Deno.serve(async (req: Request) => {
       </div>
     `;
 
-    const emailed =
-      (await sendViaResend(subject, html, senderEmail).catch(() => false)) ||
-      (await sendViaFormSubmit({
-        subject,
-        name: senderName,
-        employee_number: employeeNumber || '',
-        email: senderEmail || '',
-        category,
-        message,
-      }).catch(() => false));
+    const emailed = await sendViaResend(subject, html, senderEmail).catch(() => false);
 
     if (!emailed && insertError && requestError) {
       return json({ error: requestError.message || insertError.message || 'שליחת ההודעה נכשלה.' }, 500);
