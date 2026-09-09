@@ -144,34 +144,13 @@ export function RequestsTable({
     onReload();
   }
 
-  return (
-    <Card className="flex flex-col">
-      <SectionTitle
-        title="בקשות מהעובדים"
-        icon={<Inbox />}
-        action={<Badge color="orange">{visibleRequests.filter((r) => r.status === 'pending').length} ממתינות</Badge>}
-      />
-      <div>
-        {visibleRequests.length === 0 ? (
-          <p className="px-5 py-10 text-center text-sm text-slate-400">אין בקשות</p>
-        ) : (
-          <table className="w-full text-right text-sm">
-            <thead className="bg-slate-50 text-xs text-slate-500">
-              <tr>
-                <th className="px-4 py-2.5 font-medium">עובד</th>
-                <th className="px-4 py-2.5 font-medium">סוג</th>
-                <th className="hidden px-4 py-2.5 font-medium sm:table-cell">תיאור</th>
-                <th className="hidden px-4 py-2.5 font-medium md:table-cell">תאריך</th>
-                <th className="hidden px-4 py-2.5 font-medium lg:table-cell">תגובת מנהל</th>
-                <th className="px-4 py-2.5 font-medium">סטטוס</th>
-                <th className="px-4 py-2.5 font-medium">אישור בקשה</th>
-                <th className="px-4 py-2.5 font-medium">פעולות</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {[...visibleRequests]
-                .sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0))
-                .map((r) => (
+  const openRequests = visibleRequests
+    .filter((r) => r.status !== 'approved')
+    .sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending'));
+  const approvedRequests = visibleRequests.filter((r) => r.status === 'approved');
+
+  function requestFragments(list: EmployeeRequest[], showDecision: boolean) {
+    return list.map((r) => (
                 <Fragment key={r.id}>
                 <tr className="hover:bg-slate-50/60">
                   <td className="px-4 py-2.5">
@@ -221,6 +200,7 @@ export function RequestsTable({
                     </Badge>
                   </td>
                   <td className="px-4 py-2.5">
+                    {showDecision && r.status === 'pending' ? (
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => updateStatus(r.id, 'approved')}
@@ -237,6 +217,9 @@ export function RequestsTable({
                         דחה
                       </button>
                     </div>
+                    ) : (
+                      <span className="text-xs text-slate-300">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="relative" ref={menuOpenId === r.id ? menuRef : undefined}>
@@ -307,11 +290,54 @@ export function RequestsTable({
                   </tr>
                 )}
                 </Fragment>
-              ))}
-            </tbody>
-          </table>
+    ));
+  }
+
+  function requestsTable(list: EmployeeRequest[], showDecision: boolean) {
+    return (
+      <table className="w-full text-right text-sm">
+        <thead className="sticky top-0 z-10 bg-slate-50 text-xs text-slate-500">
+          <tr>
+            <th className="px-4 py-2.5 font-medium">עובד</th>
+            <th className="px-4 py-2.5 font-medium">סוג</th>
+            <th className="hidden px-4 py-2.5 font-medium sm:table-cell">תיאור</th>
+            <th className="hidden px-4 py-2.5 font-medium md:table-cell">תאריך</th>
+            <th className="hidden px-4 py-2.5 font-medium lg:table-cell">תגובת מנהל</th>
+            <th className="px-4 py-2.5 font-medium">סטטוס</th>
+            <th className="px-4 py-2.5 font-medium">אישור בקשה</th>
+            <th className="px-4 py-2.5 font-medium">פעולות</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">{requestFragments(list, showDecision)}</tbody>
+      </table>
+    );
+  }
+
+  return (
+    <Card className="flex flex-col">
+      <SectionTitle
+        title="בקשות מהעובדים"
+        icon={<Inbox />}
+        action={<Badge color="orange">{openRequests.filter((r) => r.status === 'pending').length} ממתינות</Badge>}
+      />
+      <div>
+        {openRequests.length === 0 ? (
+          <p className="px-5 py-10 text-center text-sm text-slate-400">
+            {approvedRequests.length > 0 ? 'אין בקשות ממתינות' : 'אין בקשות'}
+          </p>
+        ) : (
+          requestsTable(openRequests, true)
         )}
       </div>
+      {approvedRequests.length > 0 && (
+        <div className="border-t border-slate-200">
+          <div className="flex items-center justify-between bg-slate-50 px-4 py-2.5">
+            <p className="text-xs font-bold text-slate-500">בקשות שאושרו — גלול לצפייה</p>
+            <Badge color="green">{approvedRequests.length}</Badge>
+          </div>
+          <div className="max-h-52 overflow-y-auto">{requestsTable(approvedRequests, false)}</div>
+        </div>
+      )}
       {toast && (
         <div className={`fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-xl px-5 py-3 text-sm font-bold shadow-lg ${toast.type === 'ok' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'} animate-scale-in`}>
           {toast.text}
