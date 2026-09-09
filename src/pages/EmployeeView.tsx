@@ -17,6 +17,7 @@ import {
   Mail,
   KeyRound,
   Lock,
+  MessageSquarePlus,
   FileDown,
   Printer,
   ChevronRight,
@@ -52,10 +53,11 @@ import {
   isOvernightClockTimes,
 } from '@/lib/hoursAdjustment';
 import { isActiveOpenShift, isTodayAttendance, israelYesterdayStart, openShiftLabel } from '@/lib/attendanceDay';
+import { FEEDBACK_CATEGORIES, sendDeveloperFeedback } from '@/lib/developerFeedback';
 import { Avatar, Badge, Card, SectionTitle, TruncatedText } from '@/components/ui';
 import jsQR from 'jsqr';
 
-type Tab = 'clock' | 'request' | 'history' | 'account';
+type Tab = 'clock' | 'request' | 'history' | 'feedback' | 'account';
 
 type IconType = typeof Clock;
 
@@ -139,12 +141,14 @@ export default function EmployeeView() {
           <NavButton active={tab === 'clock'} onClick={() => setTab('clock')} label="דיווח נוכחות" Icon={Clock} />
           <NavButton active={tab === 'request'} onClick={() => setTab('request')} label="הגשת בקשה" Icon={Send} />
           <NavButton active={tab === 'history'} onClick={() => setTab('history')} label="היסטוריית דיווחים" Icon={History} />
+          <NavButton active={tab === 'feedback'} onClick={() => setTab('feedback')} label="הצעות למפתח" Icon={MessageSquarePlus} />
           <NavButton active={tab === 'account'} onClick={() => setTab('account')} label="החשבון שלי" Icon={UserCog} />
         </div>
 
         {tab === 'clock' && <ClockPanel />}
         {tab === 'request' && <RequestPanel />}
         {tab === 'history' && <HistoryPanel />}
+        {tab === 'feedback' && <FeedbackPanel />}
         {tab === 'account' && <AccountPanel />}
 
         <footer className="mt-8 border-t border-slate-200 pt-4 text-center text-[11px] text-slate-400">
@@ -1421,6 +1425,95 @@ function HistoryPanel() {
           </div>
         </>
       )}
+    </Card>
+  );
+}
+
+/* ---------------- Feedback to developer ---------------- */
+function FeedbackPanel() {
+  const { profile, session } = useAuth();
+  const [category, setCategory] = useState<(typeof FEEDBACK_CATEGORIES)[number]>('הצעה');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    const text = message.trim();
+    if (text.length < 8) {
+      setMsg({ type: 'err', text: 'נא לכתוב הודעה קצת יותר מפורטת (לפחות 8 תווים).' });
+      return;
+    }
+    setBusy(true);
+    const result = await sendDeveloperFeedback({
+      category,
+      message: text,
+      senderName: profile?.full_name ?? 'עובד',
+      senderEmail: session?.user?.email ?? null,
+      employeeNumber: profile?.employee_number ?? null,
+    });
+    setBusy(false);
+    if (result.error) {
+      setMsg({ type: 'err', text: result.error });
+      return;
+    }
+    setMessage('');
+    setMsg({ type: 'ok', text: 'ההודעה נשלחה למפתח המערכת. תודה!' });
+  }
+
+  return (
+    <Card>
+      <SectionTitle title="הצעות והערות למפתח" icon={<MessageSquarePlus className="h-5 w-5" />} />
+      <form onSubmit={submit} className="space-y-4 p-5">
+        <p className="text-sm text-slate-500">
+          כאן אפשר לשלוח הצעה, הערה או דיווח על תקלה ישירות למפתח המערכת.
+        </p>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">סוג הפנייה</label>
+          <div className="flex flex-wrap gap-2">
+            {FEEDBACK_CATEGORIES.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCategory(c)}
+                className={`rounded-xl border px-3 py-1.5 text-sm font-medium transition ${
+                  category === c
+                    ? 'border-brand-500 bg-brand-50 text-brand-700'
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">ההודעה</label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={6}
+            required
+            className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
+            placeholder="כתבו כאן את ההצעה או ההערה..."
+          />
+        </div>
+        {msg && (
+          <div className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium ${msg.type === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+            {msg.type === 'ok' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+            {msg.text}
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={busy}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white transition hover:bg-brand-700 disabled:opacity-60"
+        >
+          {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+          {busy ? 'שולח...' : 'שלח למפתח'}
+        </button>
+      </form>
     </Card>
   );
 }

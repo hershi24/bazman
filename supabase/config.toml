@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.update-employee-auth]
 verify_jwt = false
+
+[functions.send-developer-feedback]
+verify_jwt = false
