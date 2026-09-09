@@ -1431,7 +1431,6 @@ function HistoryPanel() {
 
 /* ---------------- Feedback to developer ---------------- */
 function FeedbackPanel() {
-  const { profile, session } = useAuth();
   const [category, setCategory] = useState<(typeof FEEDBACK_CATEGORIES)[number]>('הצעה');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1449,9 +1448,6 @@ function FeedbackPanel() {
     const result = await sendDeveloperFeedback({
       category,
       message: text,
-      senderName: profile?.full_name ?? 'עובד',
-      senderEmail: session?.user?.email ?? null,
-      employeeNumber: profile?.employee_number ?? null,
     });
     setBusy(false);
     if (result.error) {

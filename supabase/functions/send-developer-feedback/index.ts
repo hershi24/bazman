@@ -97,13 +97,13 @@ Deno.serve(async (req: Request) => {
 
     const { data: profile } = await adminClient
       .from('profiles')
-      .select('full_name, employee_number, role')
+      .select('full_name, employee_number')
       .eq('id', userData.user.id)
       .maybeSingle();
 
-    const senderName = String(body.senderName ?? profile?.full_name ?? 'עובד').trim() || 'עובד';
-    const senderEmail = String(body.senderEmail ?? userData.user.email ?? '').trim() || null;
-    const employeeNumber = String(body.employeeNumber ?? profile?.employee_number ?? '').trim() || null;
+    const senderName = (profile?.full_name || '').trim() || 'עובד';
+    const senderEmail = (userData.user.email || '').trim() || null;
+    const employeeNumber = (profile?.employee_number || '').trim() || null;
 
     const { error: insertError } = await adminClient.from('developer_feedback').insert({
       user_id: userData.user.id,
@@ -134,9 +134,9 @@ Deno.serve(async (req: Request) => {
       <div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.6">
         <h2>הודעה חדשה מ-BeZman</h2>
         <p><b>סוג:</b> ${escapeHtml(category)}</p>
-        <p><b>שם:</b> ${escapeHtml(senderName)}</p>
+        <p><b>שם העובד:</b> ${escapeHtml(senderName)}</p>
         <p><b>מספר עובד:</b> ${escapeHtml(employeeNumber || '—')}</p>
-        <p><b>אימייל:</b> ${escapeHtml(senderEmail || '—')}</p>
+        <p><b>אימייל התחברות:</b> ${escapeHtml(senderEmail || '—')}</p>
         <p><b>הודעה:</b></p>
         <pre style="white-space:pre-wrap;background:#f8fafc;padding:12px;border-radius:8px">${escapeHtml(message)}</pre>
       </div>
