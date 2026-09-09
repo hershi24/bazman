@@ -74,24 +74,30 @@ async function sendViaEdgeFunction(payload: DeveloperFeedbackPayload): Promise<b
   const base = import.meta.env.VITE_SUPABASE_URL as string;
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
   if (!token || !base) return false;
-  try {
-    const res = await fetch(`${base}/functions/v1/send-developer-feedback`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        apikey: anon,
-      },
-      body: JSON.stringify({
-        category: payload.category,
-        message: payload.message.trim(),
-      }),
-    });
-    const json = (await res.json().catch(() => ({}))) as { success?: boolean };
-    return res.ok && json?.success === true;
-  } catch {
-    return false;
+  const body = {
+    action: 'send-developer-feedback',
+    category: payload.category,
+    message: payload.message.trim(),
+  };
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+    apikey: anon,
+  };
+  for (const name of ['update-employee-auth', 'send-developer-feedback']) {
+    try {
+      const res = await fetch(`${base}/functions/v1/${name}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json().catch(() => ({}))) as { success?: boolean };
+      if (res.ok && json?.success === true) return true;
+    } catch {
+      /* try next function */
+    }
   }
+  return false;
 }
 
 export async function sendDeveloperFeedback(

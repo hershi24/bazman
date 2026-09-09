@@ -14,6 +14,64 @@ const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function resendApiKey(): string {
+  return (
+    Deno.env.get('RESEND_API_KEY') ||
+    Deno.env.get('SMTP_PASS') ||
+    Deno.env.get('SMTP_PASSWORD') ||
+    ''
+  ).trim();
+}
+
+function resendFromAddresses(): string[] {
+  const configured = (
+    Deno.env.get('RESEND_FROM') ||
+    Deno.env.get('MAIL_FROM') ||
+    Deno.env.get('SMTP_ADMIN_EMAIL') ||
+    Deno.env.get('SMTP_SENDER') ||
+    ''
+  ).trim();
+  return [...new Set(
+    [
+      configured,
+      'BeZman <noreply@bezman.co.il>',
+      'BeZman <manager@bezman.co.il>',
+      'BeZman <onboarding@resend.dev>',
+    ].filter(Boolean),
+  )];
+}
+
+async function sendViaResend(subject: string, html: string, replyTo?: string | null) {
+  const apiKey = resendApiKey();
+  if (!apiKey) return false;
+  for (const from of resendFromAddresses()) {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to: [DEVELOPER_EMAIL],
+        subject,
+        html,
+        reply_to: replyTo || undefined,
+      }),
+    });
+    if (res.ok) return true;
+  }
+  return false;
+}
+
 async function adminPutUser(userId: string, body: Record<string, unknown>) {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
     method: 'PUT',
@@ -61,6 +119,68 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     const body = await req.json();
+    if (body?.action === 'send-developer-feedback') {
+      const message = String(body.message ?? '').trim();
+      const category = String(body.category ?? 'הערה').trim() || 'הערה';
+      if (message.length < 8) {
+        return new Response(JSON.stringify({ error: 'נא לכתוב הודעה קצת יותר מפורטת.' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { data: senderProfile } = await adminClient
+        .from('profiles')
+        .select('full_name, employee_number')
+        .eq('id', userData.user.id)
+        .maybeSingle();
+
+      const senderName = (senderProfile?.full_name || '').trim() || 'עובד';
+      const senderEmail = (userData.user.email || '').trim() || null;
+      const employeeNumber = (senderProfile?.employee_number || '').trim() || null;
+      const description = [
+        `סוג: ${category}`,
+        `שם: ${senderName}`,
+        `מספר עובד: ${employeeNumber || '—'}`,
+        `אימייל: ${senderEmail || '—'}`,
+        '',
+        message,
+      ].join('\n');
+
+      await adminClient.from('developer_feedback').insert({
+        user_id: userData.user.id,
+        category,
+        message,
+        sender_name: senderName,
+        sender_email: senderEmail,
+        employee_number: employeeNumber,
+      });
+      await adminClient.from('requests').insert({
+        user_id: userData.user.id,
+        type: 'הצעה למפתח',
+        description,
+        requested_date: null,
+        status: 'pending',
+      });
+
+      const subject = `BeZman — ${category} מ${senderName}`;
+      const html = `
+        <div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.6">
+          <h2>הודעה חדשה מ-BeZman</h2>
+          <p><b>סוג:</b> ${escapeHtml(category)}</p>
+          <p><b>שם העובד:</b> ${escapeHtml(senderName)}</p>
+          <p><b>מספר עובד:</b> ${escapeHtml(employeeNumber || '—')}</p>
+          <p><b>אימייל התחברות:</b> ${escapeHtml(senderEmail || '—')}</p>
+          <p><b>הודעה:</b></p>
+          <pre style="white-space:pre-wrap;background:#f8fafc;padding:12px;border-radius:8px">${escapeHtml(message)}</pre>
+        </div>
+      `;
+      const emailed = await sendViaResend(subject, html, senderEmail).catch(() => false);
+      return new Response(JSON.stringify({ success: true, emailed }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     if (body?.action === 'apply-hours') {
       const employeeId = String(body.employeeId ?? '');
       const date = String(body.date ?? '').slice(0, 10);
