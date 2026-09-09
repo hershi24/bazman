@@ -13,6 +13,7 @@ import {
   setRequestStatus,
 } from '@/lib/hoursAdjustment';
 import { isMissingClockOut } from '@/lib/attendanceDay';
+import { isDeveloperFeedbackType } from '@/lib/developerFeedback';
 
 export function RequestsTable({
   requests,
@@ -40,7 +41,9 @@ export function RequestsTable({
   }, [menuOpenId]);
 
   const [removedIds, setRemovedIds] = useState<string[]>([]);
-  const visibleRequests = requests.filter((r) => !removedIds.includes(r.id));
+  const visibleRequests = requests.filter(
+    (r) => !removedIds.includes(r.id) && !isDeveloperFeedbackType(r.type),
+  );
 
   function flashToast(type: 'ok' | 'err', text: string) {
     setToast({ type, text });

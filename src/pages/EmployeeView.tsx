@@ -53,7 +53,7 @@ import {
   isOvernightClockTimes,
 } from '@/lib/hoursAdjustment';
 import { isActiveOpenShift, isTodayAttendance, israelYesterdayStart, openShiftLabel } from '@/lib/attendanceDay';
-import { FEEDBACK_CATEGORIES, sendDeveloperFeedback } from '@/lib/developerFeedback';
+import { FEEDBACK_CATEGORIES, isDeveloperFeedbackType, sendDeveloperFeedback } from '@/lib/developerFeedback';
 import { Avatar, Badge, Card, SectionTitle, TruncatedText } from '@/components/ui';
 import jsQR from 'jsqr';
 
@@ -892,7 +892,7 @@ function RequestPanel() {
       .eq('user_id', profile!.id)
       .order('created_at', { ascending: false })
       .limit(10);
-    setMyRequests((data as EmployeeRequest[]) ?? []);
+    setMyRequests(((data as EmployeeRequest[]) ?? []).filter((r) => !isDeveloperFeedbackType(r.type)));
   }
 
   useEffect(() => {

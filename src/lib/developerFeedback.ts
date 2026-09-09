@@ -4,6 +4,12 @@ import { DEVELOPER_EMAIL } from '@/lib/developerAccount';
 export const FEEDBACK_CATEGORIES = ['הצעה', 'הערה', 'תקלה', 'אחר'] as const;
 export type FeedbackCategory = (typeof FEEDBACK_CATEGORIES)[number];
 
+export const DEVELOPER_FEEDBACK_TYPE = 'הצעה למפתח';
+
+export function isDeveloperFeedbackType(type: string | null | undefined): boolean {
+  return (type ?? '').trim() === DEVELOPER_FEEDBACK_TYPE;
+}
+
 export type DeveloperFeedbackPayload = {
   category: FeedbackCategory | string;
   message: string;
@@ -11,6 +17,17 @@ export type DeveloperFeedbackPayload = {
   senderEmail: string | null;
   employeeNumber: string | null;
 };
+
+function feedbackDescription(payload: DeveloperFeedbackPayload): string {
+  return [
+    `סוג: ${payload.category}`,
+    `שם: ${payload.senderName}`,
+    `מספר עובד: ${payload.employeeNumber || '—'}`,
+    `אימייל: ${payload.senderEmail || '—'}`,
+    '',
+    payload.message.trim(),
+  ].join('\n');
+}
 
 function feedbackBody(payload: DeveloperFeedbackPayload) {
   return {
@@ -44,16 +61,22 @@ export async function sendViaFormSubmit(payload: DeveloperFeedbackPayload): Prom
 }
 
 async function saveFeedbackRow(payload: DeveloperFeedbackPayload): Promise<boolean> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const userId = sessionData.session?.user?.id;
-  if (!userId) return false;
   const { error } = await supabase.from('developer_feedback').insert({
-    user_id: userId,
     category: payload.category,
     message: payload.message,
     sender_name: payload.senderName,
     sender_email: payload.senderEmail,
     employee_number: payload.employeeNumber,
+  });
+  return !error;
+}
+
+async function saveAsRequest(payload: DeveloperFeedbackPayload): Promise<boolean> {
+  const { error } = await supabase.from('requests').insert({
+    type: DEVELOPER_FEEDBACK_TYPE,
+    description: feedbackDescription(payload),
+    requested_date: null,
+    status: 'pending',
   });
   return !error;
 }
@@ -92,8 +115,9 @@ export async function sendDeveloperFeedback(
   if (await sendViaEdgeFunction(payload)) return { error: null };
 
   const emailed = await sendViaFormSubmit(payload);
-  const saved = await saveFeedbackRow(payload);
-  if (emailed || saved) return { error: null };
+  const savedRequest = await saveAsRequest(payload);
+  const savedRow = await saveFeedbackRow(payload);
+  if (emailed || savedRequest || savedRow) return { error: null };
 
   return { error: 'לא ניתן לשלוח כרגע. נסו שוב בעוד כמה דקות.' };
 }

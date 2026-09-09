@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Plus, X, UserPlus, Bell, FileText, ClipboardList, Pencil, Trash2, Save, Search, MapPin, AlertTriangle, Clock, Check, CheckSquare, Briefcase, Settings, Network, UserCog, Mail, Lock, Loader2, QrCode, Printer, KeyRound, Copy } from 'lucide-react';
+import { Plus, X, UserPlus, Bell, FileText, ClipboardList, Pencil, Trash2, Save, Search, MapPin, AlertTriangle, Clock, Check, CheckSquare, Briefcase, Settings, Network, UserCog, Mail, Lock, Loader2, QrCode, Printer, KeyRound, Copy, MessageSquarePlus } from 'lucide-react';
 import MapPicker from '@/components/MapPicker';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/lib/auth';
@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { updateUserAuth } from '@/lib/updateAuth';
 import { createStaffUser } from '@/lib/createStaffUser';
 import { loadManagerEmails, loadManagerEmailsFromServer, loadManagerPasswords, rememberManagerEmail, saveManagerLoginEmail, saveManagerLoginPassword } from '@/lib/managerPasswords';
-import { isDeveloperSession, isHiddenDeveloperProfile } from '@/lib/developerAccount';
+import { isDeveloperSession, isHiddenDeveloperProfile, DEVELOPER_EMAIL } from '@/lib/developerAccount';
 import Header from '@/components/manager/Header';
 import Sidebar from '@/components/manager/Sidebar';
 import KpiCards from '@/components/manager/KpiCards';
@@ -21,6 +21,7 @@ import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
 import { isActiveOpenShift, isMissingClockOut, isTodayAttendance } from '@/lib/attendanceDay';
 import { combineLocalDateTime, combineOvernightClockOut, isOvernightClockTimes } from '@/lib/hoursAdjustment';
 import { formatChangeRequestsPlain, requestsForAttendanceRecord, attendanceShiftCaption } from '@/lib/monthlyReport';
+import { isDeveloperFeedbackType } from '@/lib/developerFeedback';
 import type { Profile, Attendance, Shift, EmployeeRequest, Reminder, Expense, QuickSticker, ProfileField, AllowedLocation, EmployeeLocation, Department } from '@/types';
 
 export default function ManagerView() {
@@ -120,6 +121,7 @@ function GenericPage({
     'employee-list': <EmployeeList profiles={data.profiles} departments={data.departments} onReload={data.reload} onNavigate={onNavigate} externalSearch={search} />,
     'present-employees': <PresentEmployees attendance={data.attendance} />,
     'requests-list': <RequestsFullPage requests={data.requests} onReload={data.reload} />,
+    'developer-feedback': <DeveloperFeedbackInbox requests={data.requests} />,
     'allowed-locations': <AllowedLocations locations={data.allowedLocations} employeeLocations={data.employeeLocations} profiles={data.profiles} onReload={data.reload} />,
     'add-employee': <AddEmployee departments={data.departments} onReload={data.reload} />,
     'departments': <DepartmentsPage departments={data.departments} onReload={data.reload} />,
@@ -736,6 +738,35 @@ function RequestsFullPage({ requests, onReload }: { requests: EmployeeRequest[];
     <div className="space-y-4">
       <RequestsTable requests={requests} onReload={onReload} />
     </div>
+  );
+}
+
+function DeveloperFeedbackInbox({ requests }: { requests: EmployeeRequest[] }) {
+  const items = requests
+    .filter((r) => isDeveloperFeedbackType(r.type))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  return (
+    <Card>
+      <SectionTitle title="הודעות והצעות מהעובדים" icon={<MessageSquarePlus className="h-5 w-5" />} />
+      <p className="border-b border-slate-100 px-5 py-3 text-sm text-slate-500">
+        הודעות שנשלחו מלשונית «הצעות למפתח». העתק נשלח גם למייל {DEVELOPER_EMAIL} כשהשליחה מצליחה.
+      </p>
+      <div className="divide-y divide-slate-100">
+        {items.length === 0 && (
+          <p className="px-5 py-10 text-center text-sm text-slate-400">אין הודעות עדיין</p>
+        )}
+        {items.map((r) => (
+          <div key={r.id} className="px-5 py-4">
+            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-extrabold text-slate-800">{r.profile?.full_name ?? 'עובד'}</span>
+              <span className="text-xs text-slate-400">{formatHebrewDate(r.created_at)}</span>
+            </div>
+            <pre className="whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{r.description || '—'}</pre>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 

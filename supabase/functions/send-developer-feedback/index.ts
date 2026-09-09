@@ -107,6 +107,21 @@ Deno.serve(async (req: Request) => {
       employee_number: employeeNumber,
     });
 
+    const { error: requestError } = await adminClient.from('requests').insert({
+      user_id: userData.user.id,
+      type: 'הצעה למפתח',
+      description: [
+        `סוג: ${category}`,
+        `שם: ${senderName}`,
+        `מספר עובד: ${employeeNumber || '—'}`,
+        `אימייל: ${senderEmail || '—'}`,
+        '',
+        message,
+      ].join('\n'),
+      requested_date: null,
+      status: 'pending',
+    });
+
     const subject = `BeZman — ${category} מ${senderName}`;
     const html = `
       <div dir="rtl" style="font-family:Arial,sans-serif;line-height:1.6">
@@ -131,8 +146,8 @@ Deno.serve(async (req: Request) => {
         message,
       }).catch(() => false));
 
-    if (!emailed && insertError) {
-      return json({ error: insertError.message || 'שליחת ההודעה נכשלה.' }, 500);
+    if (!emailed && insertError && requestError) {
+      return json({ error: requestError.message || insertError.message || 'שליחת ההודעה נכשלה.' }, 500);
     }
 
     return json({ success: true, emailed });

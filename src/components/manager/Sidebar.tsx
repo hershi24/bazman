@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { ChevronLeft, X } from 'lucide-react';
 import { MENU, type MenuGroup } from '@/lib/menu';
+import { useAuth } from '@/lib/auth';
+import { DEVELOPER_EMAIL } from '@/lib/developerAccount';
 
 export default function Sidebar({
   collapsed,
@@ -15,6 +17,14 @@ export default function Sidebar({
   mobileOpen: boolean;
   onCloseMobile: () => void;
 }) {
+  const { session } = useAuth();
+  const isDeveloperInbox =
+    (session?.user?.email ?? '').trim().toLowerCase() === DEVELOPER_EMAIL.toLowerCase();
+  const menu = MENU.map((group) => ({
+    ...group,
+    children: group.children.filter((item) => item.key !== 'developer-feedback' || isDeveloperInbox),
+  })).filter((group) => group.children.length > 0);
+
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     // expand the group containing the active key by default
     const init: Record<string, boolean> = {};
@@ -49,7 +59,7 @@ export default function Sidebar({
         </div>
 
         <nav className="flex-1 overflow-y-auto py-3">
-          {MENU.map((group) => (
+          {menu.map((group) => (
             <SidebarGroup
               key={group.key}
               group={group}

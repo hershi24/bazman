@@ -19,6 +19,7 @@ import {
   Table,
   CalendarCheck,
   Route,
+  MessageSquarePlus,
   type LucideProps,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
@@ -73,7 +74,10 @@ export const MENU: MenuGroup[] = [
     label: 'בקשות מהעובדים',
     icon: Inbox,
     key: 'requests',
-    children: [{ label: 'בקשות מהעובדים', icon: Inbox, key: 'requests-list' }],
+    children: [
+      { label: 'בקשות מהעובדים', icon: Inbox, key: 'requests-list' },
+      { label: 'הודעות למפתח', icon: MessageSquarePlus, key: 'developer-feedback' },
+    ],
   },
   {
     label: 'דוחות',
