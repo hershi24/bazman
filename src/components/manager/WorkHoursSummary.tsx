@@ -14,6 +14,7 @@ import {
   List,
   Pencil,
   Plus,
+  Trash2,
   Save,
   X,
   Loader2,
@@ -33,7 +34,7 @@ import {
   parseHoursAdjustment,
 } from '@/lib/hoursAdjustment';
 import { isActiveOpenShift, isMissingClockOut, openShiftLabel } from '@/lib/attendanceDay';
-import { managerInsertAttendance } from '@/lib/managerAttendance';
+import { managerDeleteAttendance, managerInsertAttendance } from '@/lib/managerAttendance';
 
 function toDateTimeLocal(iso: string | null): string {
   if (!iso) return '';
@@ -571,6 +572,7 @@ function CalendarCard({
   onReload: () => void;
 }) {
   const [addDay, setAddDay] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Attendance | null>(null);
   const [y, m] = monthKeyStr.split('-').map(Number);
   const firstDay = new Date(y, m - 1, 1);
   const daysInMonth = new Date(y, m, 0).getDate();
@@ -761,39 +763,49 @@ function CalendarCard({
                 {/* Records */}
                 {hasRecords && (
                   <div className="space-y-1">
-                    {dayRecords.slice(0, 2).map((r, ri) => (
-                      <div key={ri} className="rounded-md bg-white/80 px-1 py-0.5">
-                        {dayRecords.length > 1 && (
-                          <div className="text-[9px] font-extrabold text-indigo-600">משמרת {ri + 1}</div>
-                        )}
-                        <div className="flex items-center gap-1 text-[10px] font-medium">
-                          <LogIn className="h-2.5 w-2.5 shrink-0 text-emerald-500" />
-                          <span className="text-slate-600">{formatTime(r.clock_in)}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-[10px] font-medium">
-                          {r.clock_out ? (
-                            <>
-                              <LogOut className="h-2.5 w-2.5 shrink-0 text-rose-500" />
-                              <span className="text-slate-600">{formatTime(r.clock_out)}</span>
-                            </>
-                          ) : (
-                            <span className={`text-[9px] font-bold ${isActiveOpenShift(r) ? 'text-emerald-600' : 'text-rose-500'}`}>
-                              {openShiftLabel(r)}
-                            </span>
-                          )}
-                        </div>
-                        {r.clock_out && (
-                          <div className="text-[10px] font-bold text-brand-600">
-                            {parseHours(r.clock_in, r.clock_out).toFixed(1)} ש׳
+                    {dayRecords.map((r, ri) => (
+                      <div key={r.id} className="relative rounded-md bg-white/80 px-1 py-0.5">
+                        <div className="flex items-start justify-between gap-0.5">
+                          <div className="min-w-0">
+                            {dayRecords.length > 1 && (
+                              <div className="text-[9px] font-extrabold text-indigo-600">משמרת {ri + 1}</div>
+                            )}
+                            <div className="flex items-center gap-1 text-[10px] font-medium">
+                              <LogIn className="h-2.5 w-2.5 shrink-0 text-emerald-500" />
+                              <span className="text-slate-600">{formatTime(r.clock_in)}</span>
+                            </div>
+                            <div className="flex items-center gap-1 text-[10px] font-medium">
+                              {r.clock_out ? (
+                                <>
+                                  <LogOut className="h-2.5 w-2.5 shrink-0 text-rose-500" />
+                                  <span className="text-slate-600">{formatTime(r.clock_out)}</span>
+                                </>
+                              ) : (
+                                <span className={`text-[9px] font-bold ${isActiveOpenShift(r) ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                  {openShiftLabel(r)}
+                                </span>
+                              )}
+                            </div>
+                            {r.clock_out && (
+                              <div className="text-[10px] font-bold text-brand-600">
+                                {parseHours(r.clock_in, r.clock_out).toFixed(1)} ש׳
+                              </div>
+                            )}
                           </div>
-                        )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleting(r);
+                            }}
+                            className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-rose-50 text-rose-600 transition hover:bg-rose-100 hover:text-rose-700"
+                            title="מחק דיווח"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
                     ))}
-                    {dayRecords.length > 2 && (
-                      <div className="text-center text-[9px] text-slate-400">
-                        +{dayRecords.length - 2} נוספים
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -864,6 +876,9 @@ function CalendarCard({
             </span>{' '}
             הוסף דיווח נוכחות
           </span>
+          <span className="flex items-center gap-1.5">
+            <Trash2 className="h-3.5 w-3.5 text-rose-500" /> מחק דיווח
+          </span>
         </div>
       </div>
 
@@ -875,6 +890,17 @@ function CalendarCard({
           onClose={() => setAddDay(null)}
           onSaved={() => {
             setAddDay(null);
+            onReload();
+          }}
+        />
+      )}
+      {deleting && (
+        <DeleteRecordModal
+          record={deleting}
+          employeeName={summary.profile.full_name}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
             onReload();
           }}
         />
@@ -897,6 +923,7 @@ function ListCard({
 }) {
   const [editing, setEditing] = useState<Attendance | null>(null);
   const [addDay, setAddDay] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Attendance | null>(null);
   const byDay = new Map<string, Attendance[]>();
   summary.records.forEach((r) => {
     if (!r.clock_in) return;
@@ -1038,14 +1065,24 @@ function ListCard({
 
                     <ChangeRequestBlock record={r} requests={requests} dayRecords={recs} />
 
-                    {/* Edit button */}
-                    <button
-                      onClick={() => setEditing(r)}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-brand-100 hover:text-brand-700"
-                      title="ערוך שעות"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditing(r)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-brand-100 hover:text-brand-700"
+                        title="ערוך שעות"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleting(r)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition hover:bg-rose-100 hover:text-rose-600"
+                        title="מחק דיווח"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 )) : (
                   <p className="text-sm font-medium text-slate-400">אין דיווח נוכחות</p>
@@ -1097,6 +1134,17 @@ function ListCard({
           onClose={() => setAddDay(null)}
           onSaved={() => {
             setAddDay(null);
+            onReload();
+          }}
+        />
+      )}
+      {deleting && (
+        <DeleteRecordModal
+          record={deleting}
+          employeeName={summary.profile.full_name}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
             onReload();
           }}
         />
@@ -1176,6 +1224,78 @@ function EditRecordModal({
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {busy ? 'שומר...' : 'שמור שינויים'}
+          </button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Delete attendance modal ---------- */
+function DeleteRecordModal({
+  record,
+  employeeName,
+  onClose,
+  onDeleted,
+}: {
+  record: Attendance;
+  employeeName: string;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function remove() {
+    setBusy(true);
+    setErr(null);
+    const result = await managerDeleteAttendance(record.id);
+    if (result.error) {
+      setErr(result.error);
+      setBusy(false);
+      return;
+    }
+    onDeleted();
+  }
+
+  const hours = record.clock_out ? parseHours(record.clock_in, record.clock_out).toFixed(1) : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <Card className="w-full max-w-md p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-bold text-slate-800">מחיקת דיווח נוכחות</h3>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600" aria-label="סגור">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <p className="mb-1 text-sm font-medium text-slate-700">{employeeName}</p>
+        <p className="mb-4 text-xs text-slate-500">{formatHebrewDate(record.clock_in)}</p>
+        <p className="text-sm leading-relaxed text-slate-600">
+          למחוק את הדיווח הזה מהדו״ח החודשי? יימחק רק הדיווח הזה — העובד עצמו לא יימחק. הפעולה לא ניתנת לביטול.
+        </p>
+        <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          {formatTime(record.clock_in)}
+          {record.clock_out ? ` – ${formatTime(record.clock_out)}` : ` · ${openShiftLabel(record)}`}
+          {hours ? ` · ${hours} שעות` : ''}
+        </p>
+        {err && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{err}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl px-4 py-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100"
+          >
+            ביטול
+          </button>
+          <button
+            type="button"
+            onClick={() => void remove()}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-rose-700 disabled:opacity-60"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            {busy ? 'מוחק...' : 'מחק דיווח'}
           </button>
         </div>
       </Card>
