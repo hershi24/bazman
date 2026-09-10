@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { DEVELOPER_EMAIL } from '@/lib/developerAccount';
 
 export const FEEDBACK_CATEGORIES = ['הצעה', 'הערה', 'תקלה', 'אחר'] as const;
 export type FeedbackCategory = (typeof FEEDBACK_CATEGORIES)[number];
@@ -68,6 +69,37 @@ async function saveAsRequest(payload: DeveloperFeedbackPayload, sender: SenderId
   return !error;
 }
 
+async function sendViaFormSubmit(
+  payload: DeveloperFeedbackPayload,
+  sender: SenderIdentity,
+): Promise<boolean> {
+  const text = payload.message.trim();
+  try {
+    const res = await fetch(`https://formsubmit.co/ajax/${DEVELOPER_EMAIL}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        _subject: `BeZman — ${payload.category} מ${sender.senderName}`,
+        _template: 'box',
+        _captcha: 'false',
+        _replyto: sender.senderEmail || undefined,
+        'שם העובד': sender.senderName,
+        'מספר עובד': sender.employeeNumber || '—',
+        'אימייל התחברות': sender.senderEmail || '—',
+        סוג: payload.category,
+        הודעה: text,
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { success?: boolean | string };
+    return res.ok && (json.success === true || json.success === 'true');
+  } catch {
+    return false;
+  }
+}
+
 async function sendViaEdgeFunction(payload: DeveloperFeedbackPayload): Promise<boolean> {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
@@ -91,8 +123,8 @@ async function sendViaEdgeFunction(payload: DeveloperFeedbackPayload): Promise<b
         headers,
         body: JSON.stringify(body),
       });
-      const json = (await res.json().catch(() => ({}))) as { success?: boolean };
-      if (res.ok && json?.success === true) return true;
+      const json = (await res.json().catch(() => ({}))) as { success?: boolean; emailed?: boolean };
+      if (res.ok && json?.success === true && json.emailed === true) return true;
     } catch {
       /* try next function */
     }
@@ -108,15 +140,15 @@ export async function sendDeveloperFeedback(
     return { error: 'נא לכתוב הודעה קצת יותר מפורטת (לפחות 8 תווים).' };
   }
 
-  const clean = { category: payload.category, message };
-  if (await sendViaEdgeFunction(clean)) return { error: null };
-
   const sender = await currentSender();
   if (!sender) return { error: 'יש להתחבר מחדש ואז לנסות שוב.' };
 
+  const clean = { category: payload.category, message };
+  const emailed =
+    (await sendViaEdgeFunction(clean)) || (await sendViaFormSubmit(clean, sender));
   const savedRequest = await saveAsRequest(clean, sender);
   const savedRow = await saveFeedbackRow(clean, sender);
-  if (savedRequest || savedRow) return { error: null };
+  if (emailed || savedRequest || savedRow) return { error: null };
 
   return { error: 'לא ניתן לשלוח כרגע. נסו שוב בעוד כמה דקות.' };
 }
