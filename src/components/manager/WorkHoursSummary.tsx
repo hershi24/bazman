@@ -798,7 +798,7 @@ function CalendarCard({
                               e.stopPropagation();
                               setDeleting(r);
                             }}
-                            className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-100 hover:text-rose-600"
+                            className="relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-rose-50 text-rose-600 transition hover:bg-rose-100 hover:text-rose-700"
                             title="מחק דיווח"
                           >
                             <Trash2 className="h-3 w-3" />
