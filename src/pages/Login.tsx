@@ -70,14 +70,18 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gradient-to-bl from-brand-950 via-brand-800 to-brand-600 lg:flex-row">
-      {/* Brand panel */}
-      <div className="relative flex flex-1 flex-col justify-between overflow-hidden p-8 text-white lg:p-14">
-        <div className="pointer-events-none absolute inset-0 opacity-20">
-          <div className="absolute -top-24 -left-24 h-96 w-96 rounded-full bg-accent-400 blur-3xl" />
-          <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-brand-300 blur-3xl" />
-        </div>
+    <div className="relative flex min-h-screen flex-col lg:flex-row">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <img
+          src="/login-bg.jpg"
+          alt=""
+          className="h-full w-full object-cover object-[18%_center]"
+        />
+        <div className="absolute inset-0 bg-slate-950/50" />
+      </div>
 
+      {/* Brand panel */}
+      <div className="relative z-10 flex flex-1 flex-col justify-between overflow-hidden p-8 text-white lg:p-14">
         <div className="relative flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 backdrop-blur">
             <Clock className="h-7 w-7" />
@@ -119,7 +123,7 @@ export default function Login() {
       </div>
 
       {/* Login form */}
-      <div className="flex flex-1 items-center justify-center p-6 lg:p-14">
+      <div className="relative z-10 flex flex-1 items-center justify-center p-6 lg:p-14">
         <div className="w-full max-w-md animate-fade-in-up rounded-3xl bg-white p-8 shadow-2xl">
           {!showReset ? (
             <>
