@@ -1,10 +1,20 @@
-/** Whole minutes between clock-in and clock-out. Incomplete seconds are not counted. */
+import { combineLocalDateTime, israelDateKey, timeFromIso } from '@/lib/hoursAdjustment';
+
+/**
+ * Whole minutes between the clock times shown on screen (Israel hour:minute).
+ * Seconds are ignored so 06:15–18:36 is always 12:21, matching the stamps.
+ */
 export function minutesBetween(start: string | null, end: string | null): number | null {
   if (!start || !end) return null;
-  const s = new Date(start).getTime();
-  const e = new Date(end).getTime();
+  const inKey = israelDateKey(start);
+  const outKey = israelDateKey(end);
+  const inHm = timeFromIso(start);
+  const outHm = timeFromIso(end);
+  if (!inKey || !outKey || !inHm || !outHm) return null;
+  const s = new Date(combineLocalDateTime(inKey, inHm)).getTime();
+  const e = new Date(combineLocalDateTime(outKey, outHm)).getTime();
   if (isNaN(s) || isNaN(e) || e < s) return null;
-  return Math.floor((e - s) / 60000);
+  return Math.round((e - s) / 60000);
 }
 
 export function minutesBetweenOrZero(start: string | null, end: string | null): number {
