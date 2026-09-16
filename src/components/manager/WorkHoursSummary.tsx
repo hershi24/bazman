@@ -24,6 +24,7 @@ import { formatHebrewDate, formatTime } from '@/lib/format';
 import { supabase } from '@/lib/supabase';
 import type { Attendance, EmployeeRequest, Profile } from '@/types';
 import { formatChangeRequestHtml, requestsForAttendanceDay, requestsForAttendanceRecord, attendanceShiftCaption } from '@/lib/monthlyReport';
+import { averageMinutes, formatHm, formatHmHtml, minutesBetween, minutesBetweenOrZero } from '@/lib/workDuration';
 import {
   combineLocalDateTime,
   combineOvernightClockOut,
@@ -78,12 +79,8 @@ function monthLabel(key: string) {
   return `${MONTH_NAMES[parseInt(m) - 1]} ${y}`;
 }
 
-function parseHours(start: string | null, end: string | null): number {
-  if (!start || !end) return 0;
-  const s = new Date(start).getTime();
-  const e = new Date(end).getTime();
-  if (isNaN(s) || isNaN(e) || e < s) return 0;
-  return (e - s) / 3600000;
+function durationHm(start: string | null, end: string | null): string {
+  return formatHm(minutesBetween(start, end));
 }
 
 function getWeekNumber(date: Date): number {
@@ -97,7 +94,7 @@ function getWeekNumber(date: Date): number {
 type EmpSummary = {
   profile: Profile;
   records: Attendance[];
-  totalHours: number;
+  totalMinutes: number;
   daysWorked: number;
   changeRequestCount: number;
   missingClockOut: number;
@@ -214,20 +211,20 @@ export default function WorkHoursSummary({
         (a, b) => new Date(a.clock_in!).getTime() - new Date(b.clock_in!).getTime(),
       );
       if (records.length === 0 && selectedEmp !== p.id) return;
-      const totalHours = records.reduce((sum, r) => sum + parseHours(r.clock_in, r.clock_out), 0);
+      const totalMinutes = records.reduce((sum, r) => sum + minutesBetweenOrZero(r.clock_in, r.clock_out), 0);
       result.push({
         profile: p,
         records,
-        totalHours,
+        totalMinutes,
         daysWorked: new Set(records.map((r) => israelDateKey(r.clock_in)).filter(Boolean)).size,
         changeRequestCount: records.filter((r) => requestsForAttendanceDay(r.user_id, r.clock_in, requests).length > 0).length,
         missingClockOut: records.filter((r) => isMissingClockOut(r)).length,
       });
     });
-    return result.sort((a, b) => b.totalHours - a.totalHours);
+    return result.sort((a, b) => b.totalMinutes - a.totalMinutes);
   }, [filtered, employees, requests, selectedEmp]);
 
-  const grandTotalHours = summaries.reduce((s, e) => s + e.totalHours, 0);
+  const grandTotalMinutes = summaries.reduce((s, e) => s + e.totalMinutes, 0);
   const grandTotalDays = summaries.reduce((s, e) => s + e.daysWorked, 0);
 
   function navigateMonth(dir: number) {
@@ -250,7 +247,7 @@ export default function WorkHoursSummary({
           const d = new Date(r.clock_in!);
           const dow = d.getDay();
           const isWeekend = dow >= 5;
-          const hours = r.clock_out ? parseHours(r.clock_in, r.clock_out).toFixed(1) : '—';
+          const hours = r.clock_out ? formatHmHtml(minutesBetween(r.clock_in, r.clock_out)) : '—';
           return `<tr class="${isWeekend ? 'weekend' : ''}">
             <td class="date">${formatHebrewDate(r.clock_in)}${attendanceShiftCaption(r, s.records) ? `<div style="font-size:10px;font-weight:800;color:#4f46e5">${attendanceShiftCaption(r, s.records)}</div>` : ''}</td>
             <td class="${isWeekend ? 'weekend-day' : ''}">${DAY_NAMES_LONG[dow]}</td>
@@ -264,11 +261,11 @@ export default function WorkHoursSummary({
         return `
         <div class="emp-block">
           <h3>${s.profile.full_name}</h3>
-          <p class="emp-meta">ימי עבודה: ${s.daysWorked} · סה"כ שעות: ${s.totalHours.toFixed(1)}${s.changeRequestCount ? ` · בקשות שינוי: ${s.changeRequestCount}` : ''}</p>
+          <p class="emp-meta">ימי עבודה: ${s.daysWorked} · סה"כ שעות: ${formatHmHtml(s.totalMinutes)}${s.changeRequestCount ? ` · בקשות שינוי: ${s.changeRequestCount}` : ''}</p>
           <table class="list-table">
             <thead><tr><th>תאריך</th><th>יום</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th>מיקום</th><th>בקשת שינוי</th></tr></thead>
             <tbody>${rows}</tbody>
-            <tfoot><tr><td colspan="3" class="name">סה"כ</td><td class="hours">${s.totalHours.toFixed(1)}</td><td colspan="3"></td></tr></tfoot>
+            <tfoot><tr><td colspan="3" class="name">סה"כ</td><td class="hours">${formatHmHtml(s.totalMinutes)}</td><td colspan="3"></td></tr></tfoot>
           </table>
         </div>`;
       }).join('');
@@ -306,7 +303,7 @@ export default function WorkHoursSummary({
                 ? `<div class="cal-out">↑ ${formatTime(r.clock_out)}</div>`
                 : `<div class="cal-missing">${openShiftLabel(r)}</div>`;
               if (r.clock_out)
-                inner += `<div class="cal-hours">${parseHours(r.clock_in, r.clock_out).toFixed(1)}ש׳</div>`;
+                inner += `<div class="cal-hours">${formatHmHtml(minutesBetween(r.clock_in, r.clock_out))}ש׳</div>`;
             });
           }
           allCells.push(`<td class="cal-cell ${isWeekend ? 'weekend' : ''} ${recs.length > 0 ? 'has-rec' : ''}">${inner}</td>`);
@@ -318,7 +315,7 @@ export default function WorkHoursSummary({
         return `
         <div class="emp-block">
           <h3>${s.profile.full_name}</h3>
-          <p class="emp-meta">ימי עבודה: ${s.daysWorked} · סה"כ שעות: ${s.totalHours.toFixed(1)}${s.changeRequestCount ? ` · בקשות שינוי: ${s.changeRequestCount}` : ''}</p>
+          <p class="emp-meta">ימי עבודה: ${s.daysWorked} · סה"כ שעות: ${formatHmHtml(s.totalMinutes)}${s.changeRequestCount ? ` · בקשות שינוי: ${s.changeRequestCount}` : ''}</p>
           <table class="cal-table">
             <thead><tr>${dayHeaders}</tr></thead>
             <tbody>${rows.join('')}</tbody>
@@ -498,7 +495,7 @@ export default function WorkHoursSummary({
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiTile icon={<Users className="h-5 w-5" />} label="עובדים בדוח" value={summaries.length} color="brand" />
         <KpiTile icon={<CalendarIcon className="h-5 w-5" />} label="סה״כ ימי עבודה" value={grandTotalDays} color="emerald" />
-        <KpiTile icon={<Clock className="h-5 w-5" />} label="סה״כ שעות" value={grandTotalHours.toFixed(1)} color="accent" />
+        <KpiTile icon={<Clock className="h-5 w-5" />} label="סה״כ שעות" value={formatHm(grandTotalMinutes)} color="accent" />
         <KpiTile
           icon={<AlertCircle className="h-5 w-5" />}
           label="יציאות חסרות"
@@ -591,15 +588,15 @@ function CalendarCard({
   });
 
   // Weekly subtotals
-  const weeklyTotals: { weekNum: number; hours: number; days: number }[] = [];
-  const weekMap = new Map<number, { hours: number; days: number }>();
+  const weeklyTotals: { weekNum: number; minutes: number; days: number }[] = [];
+  const weekMap = new Map<number, { minutes: number; days: number }>();
   summary.records.forEach((r) => {
     if (!r.clock_in) return;
     const d = new Date(r.clock_in);
     if (d.getFullYear() !== y || d.getMonth() + 1 !== m) return;
     const wn = getWeekNumber(d);
-    const ex = weekMap.get(wn) ?? { hours: 0, days: 0 };
-    ex.hours += parseHours(r.clock_in, r.clock_out);
+    const ex = weekMap.get(wn) ?? { minutes: 0, days: 0 };
+    ex.minutes += minutesBetweenOrZero(r.clock_in, r.clock_out);
     ex.days += 1;
     weekMap.set(wn, ex);
   });
@@ -611,7 +608,7 @@ function CalendarCard({
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
 
-  const maxWeekHours = Math.max(...weeklyTotals.map((w) => w.hours), 1);
+  const maxWeekMinutes = Math.max(...weeklyTotals.map((w) => w.minutes), 1);
 
   return (
     <Card>
@@ -622,8 +619,8 @@ function CalendarCard({
           <div>
             <h3 className="text-base font-extrabold text-slate-800">{summary.profile.full_name}</h3>
             <p className="text-xs text-slate-400">
-              {summary.daysWorked} ימים · {summary.totalHours.toFixed(1)} שעות · ממוצע{' '}
-              {summary.daysWorked > 0 ? (summary.totalHours / summary.daysWorked).toFixed(1) : '—'} ש׳/יום
+              {summary.daysWorked} ימים · <span dir="ltr" className="tabular-nums">{formatHm(summary.totalMinutes)}</span> שעות · ממוצע{' '}
+              <span dir="ltr" className="tabular-nums">{formatHm(averageMinutes(summary.totalMinutes, summary.daysWorked))}</span> ש׳/יום
             </p>
           </div>
         </div>
@@ -644,9 +641,9 @@ function CalendarCard({
                 <div className="h-5 w-24 overflow-hidden rounded-full bg-slate-200">
                   <div
                     className="flex h-full items-center justify-end rounded-full bg-gradient-to-l from-brand-400 to-brand-600 pl-1.5"
-                    style={{ width: `${Math.max((w.hours / maxWeekHours) * 100, 8)}%` }}
+                    style={{ width: `${Math.max((w.minutes / maxWeekMinutes) * 100, 8)}%` }}
                   >
-                    <span className="text-[9px] font-bold text-white">{w.hours.toFixed(1)}ש׳</span>
+                    <span dir="ltr" className="text-[9px] font-bold tabular-nums text-white">{formatHm(w.minutes)}</span>
                   </div>
                 </div>
                 <span className="text-[10px] text-slate-400">{w.days} ימים</span>
@@ -788,7 +785,7 @@ function CalendarCard({
                             </div>
                             {r.clock_out && (
                               <div className="text-[10px] font-bold text-brand-600">
-                                {parseHours(r.clock_in, r.clock_out).toFixed(1)} ש׳
+                                <span dir="ltr" className="tabular-nums">{durationHm(r.clock_in, r.clock_out)}</span> ש׳
                               </div>
                             )}
                           </div>
@@ -832,7 +829,7 @@ function CalendarCard({
                           {r.clock_out && (
                             <div className="flex items-center justify-between gap-4 text-[11px]">
                               <span className="text-slate-500">שעות</span>
-                              <span className="font-bold text-brand-600">{parseHours(r.clock_in, r.clock_out).toFixed(1)}</span>
+                              <span dir="ltr" className="font-bold tabular-nums text-brand-600">{durationHm(r.clock_in, r.clock_out)}</span>
                             </div>
                           )}
                           <ChangeRequestBlock record={r} requests={requests} dayRecords={dayRecords} />
@@ -944,8 +941,8 @@ function ListCard({
           <div>
             <h3 className="text-base font-extrabold text-slate-800">{summary.profile.full_name}</h3>
             <p className="text-xs text-slate-400">
-              {summary.daysWorked} ימים · {summary.totalHours.toFixed(1)} שעות · ממוצע{' '}
-              {summary.daysWorked > 0 ? (summary.totalHours / summary.daysWorked).toFixed(1) : '—'} ש׳/יום
+              {summary.daysWorked} ימים · <span dir="ltr" className="tabular-nums">{formatHm(summary.totalMinutes)}</span> שעות · ממוצע{' '}
+              <span dir="ltr" className="tabular-nums">{formatHm(averageMinutes(summary.totalMinutes, summary.daysWorked))}</span> ש׳/יום
             </p>
           </div>
         </div>
@@ -963,7 +960,7 @@ function ListCard({
           const dow = d.getDay();
           const isWeekend = dow === 5 || dow === 6;
           const hasRecords = recs.length > 0;
-          const dayHours = recs.reduce((s, r) => s + parseHours(r.clock_in, r.clock_out), 0);
+          const dayMinutes = recs.reduce((s, r) => s + minutesBetweenOrZero(r.clock_in, r.clock_out), 0);
           const hasMissing = recs.some((r) => isMissingClockOut(r));
 
           return (
@@ -1045,7 +1042,7 @@ function ListCard({
                         </div>
                         <div>
                           <div className="text-[10px] text-slate-400">שעות</div>
-                          <div className="text-sm font-bold text-brand-700">{parseHours(r.clock_in, r.clock_out).toFixed(1)}</div>
+                          <div dir="ltr" className="text-sm font-bold tabular-nums text-brand-700">{durationHm(r.clock_in, r.clock_out)}</div>
                         </div>
                       </div>
                     )}
@@ -1102,7 +1099,7 @@ function ListCard({
                 <div className="text-[10px] text-slate-400">סה״כ יומי</div>
                 <div className={`text-lg font-extrabold ${
                   !hasRecords ? 'text-slate-300' : hasMissing ? 'text-rose-600' : 'text-brand-700'
-                }`}>{hasRecords ? dayHours.toFixed(1) : '—'}</div>
+                }`}>{hasRecords ? <span dir="ltr" className="tabular-nums">{formatHm(dayMinutes)}</span> : '—'}</div>
                 <div className="text-[10px] text-slate-400">שעות</div>
               </div>
             </div>
@@ -1113,7 +1110,8 @@ function ListCard({
       {/* Footer total */}
       <div className="flex items-center justify-between border-t-2 border-slate-200 bg-slate-50 px-5 py-3">
         <span className="text-sm font-extrabold text-slate-700">סה״כ חודשי</span>
-        <span className="text-lg font-extrabold text-brand-700">{summary.totalHours.toFixed(1)} שעות</span>
+        <span dir="ltr" className="text-lg font-extrabold tabular-nums text-brand-700">{formatHm(summary.totalMinutes)}</span>
+        <span className="text-lg font-extrabold text-brand-700"> שעות</span>
       </div>
 
       {editing && (
@@ -1258,7 +1256,7 @@ function DeleteRecordModal({
     onDeleted();
   }
 
-  const hours = record.clock_out ? parseHours(record.clock_in, record.clock_out).toFixed(1) : null;
+  const hours = durationHm(record.clock_in, record.clock_out);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1277,7 +1275,7 @@ function DeleteRecordModal({
         <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
           {formatTime(record.clock_in)}
           {record.clock_out ? ` – ${formatTime(record.clock_out)}` : ` · ${openShiftLabel(record)}`}
-          {hours ? ` · ${hours} שעות` : ''}
+          {record.clock_out ? <> · <span dir="ltr" className="tabular-nums">{hours}</span> שעות</> : ''}
         </p>
         {err && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{err}</p>}
         <div className="mt-5 flex justify-end gap-2">

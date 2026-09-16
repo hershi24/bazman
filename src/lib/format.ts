@@ -1,3 +1,5 @@
+import { formatHmLabel, minutesBetween } from '@/lib/workDuration';
+
 export function formatHebrewDate(d: string | Date | null): string {
   if (!d) return '—';
   const date = typeof d === 'string' ? new Date(d) : d;
@@ -40,12 +42,7 @@ export function relativeDays(d: string | Date | null): string {
 }
 
 export function hoursBetween(start: string | null, end: string | null): string {
-  if (!start || !end) return '—';
-  const s = new Date(start).getTime();
-  const e = new Date(end).getTime();
-  if (isNaN(s) || isNaN(e) || e < s) return '—';
-  const hrs = (e - s) / 3600000;
-  return `${hrs.toFixed(1)} שעות`;
+  return formatHmLabel(minutesBetween(start, end));
 }
 
 export function initials(name: string): string {
