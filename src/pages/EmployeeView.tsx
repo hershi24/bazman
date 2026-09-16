@@ -33,7 +33,6 @@ import {
   monthLabel,
   monthDateRange,
   computeMonthlySummary,
-  parseHours,
   printMonthlyReport,
   downloadMonthlyReportCsv,
   localDateKey,
@@ -53,6 +52,7 @@ import {
   isOvernightClockTimes,
 } from '@/lib/hoursAdjustment';
 import { isActiveOpenShift, isTodayAttendance, israelYesterdayStart, openShiftLabel } from '@/lib/attendanceDay';
+import { averageMinutes, formatHm, minutesBetween, minutesBetweenOrZero } from '@/lib/workDuration';
 import { FEEDBACK_CATEGORIES, isDeveloperFeedbackType, sendDeveloperFeedback } from '@/lib/developerFeedback';
 import { Avatar, Badge, Card, SectionTitle, TruncatedText } from '@/components/ui';
 import jsQR from 'jsqr';
@@ -474,7 +474,7 @@ function ClockPanel() {
   const isOnShift = !!openShift;
   const lastRecord = todayRecords[0] ?? null;
   const busy = stage === 'checking-gps' || stage === 'scanning-qr' || stage === 'submitting';
-  const dayHours = todayRecords.reduce((sum, r) => sum + parseHours(r.clock_in, r.clock_out), 0);
+  const dayMinutes = todayRecords.reduce((sum, r) => sum + minutesBetweenOrZero(r.clock_in, r.clock_out), 0);
 
   return (
     <div className="space-y-5">
@@ -517,7 +517,7 @@ function ClockPanel() {
             </div>
             <div className="rounded-xl bg-slate-50 p-3">
               <p className="text-[11px] text-slate-400">סה"כ היום</p>
-              <p className="text-sm font-bold text-slate-700">{dayHours.toFixed(1)} שעות</p>
+              <p dir="ltr" className="text-sm font-bold tabular-nums text-slate-700">{formatHm(dayMinutes)} שעות</p>
             </div>
           </div>
         )}
@@ -1348,12 +1348,12 @@ function HistoryPanel() {
               <p className="text-xs text-brand-600">ימי עבודה</p>
             </div>
             <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-center">
-              <p className="text-2xl font-extrabold text-emerald-700">{summary.totalHours.toFixed(1)}</p>
+              <p dir="ltr" className="text-2xl font-extrabold tabular-nums text-emerald-700">{formatHm(summary.totalMinutes)}</p>
               <p className="text-xs text-emerald-600">סה"כ שעות</p>
             </div>
             <div className="rounded-xl border border-accent-100 bg-accent-50 p-3 text-center">
-              <p className="text-2xl font-extrabold text-accent-700">
-                {summary.daysWorked > 0 ? (summary.totalHours / summary.daysWorked).toFixed(1) : '—'}
+              <p dir="ltr" className="text-2xl font-extrabold tabular-nums text-accent-700">
+                {formatHm(averageMinutes(summary.totalMinutes, summary.daysWorked))}
               </p>
               <p className="text-xs text-accent-600">ממוצע יומי</p>
             </div>
@@ -1401,7 +1401,7 @@ function HistoryPanel() {
                     <p className="text-xs text-slate-400">
                       {formatTime(a.clock_in)} — {formatTime(a.clock_out)} ·{' '}
                       {a.clock_out
-                        ? `${parseHours(a.clock_in, a.clock_out).toFixed(1)} שעות`
+                        ? <span dir="ltr" className="tabular-nums">{formatHm(minutesBetween(a.clock_in, a.clock_out))} שעות</span>
                         : openShiftLabel(a)}
                     </p>
                     {dayReqs.length > 0 && (
@@ -1421,7 +1421,7 @@ function HistoryPanel() {
           </div>
           <div className="flex items-center justify-between border-t-2 border-slate-200 bg-slate-50 px-5 py-3">
             <span className="text-sm font-extrabold text-slate-700">סה"כ חודשי</span>
-            <span className="text-lg font-extrabold text-brand-700">{summary.totalHours.toFixed(1)} שעות</span>
+            <span dir="ltr" className="text-lg font-extrabold tabular-nums text-brand-700">{formatHm(summary.totalMinutes)} שעות</span>
           </div>
         </>
       )}

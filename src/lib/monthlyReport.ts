@@ -2,6 +2,7 @@ import type { Attendance, EmployeeRequest, Profile } from '@/types';
 import { formatHebrewDate, formatTime } from '@/lib/format';
 import { hoursAdjustmentSummary, originalHoursSummary, parseHoursAdjustment, effectiveRequestDecision, israelDateKey, isHoursAdjustmentType, shiftLabel } from '@/lib/hoursAdjustment';
 import { isMissingClockOut, openShiftLabel } from '@/lib/attendanceDay';
+import { averageMinutes, formatHm, formatHmHtml, minutesBetween, minutesBetweenOrZero } from '@/lib/workDuration';
 
 export const MONTH_NAMES = [
   'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
@@ -19,14 +20,6 @@ export function monthLabel(key: string): string {
   return `${MONTH_NAMES[parseInt(m) - 1]} ${y}`;
 }
 
-export function parseHours(start: string | null, end: string | null): number {
-  if (!start || !end) return 0;
-  const s = new Date(start).getTime();
-  const e = new Date(end).getTime();
-  if (isNaN(s) || isNaN(e) || e < s) return 0;
-  return (e - s) / 3600000;
-}
-
 export function monthDateRange(key: string): { start: string; end: string } {
   const [y, m] = key.split('-').map(Number);
   const start = new Date(y, m - 1, 1);
@@ -36,7 +29,7 @@ export function monthDateRange(key: string): { start: string; end: string } {
 
 export type MonthlySummary = {
   records: Attendance[];
-  totalHours: number;
+  totalMinutes: number;
   daysWorked: number;
   approved: number;
   pending: number;
@@ -176,7 +169,7 @@ export function computeMonthlySummary(records: Attendance[], requests: EmployeeR
   const changeRequests = requests.filter((r) => userIds.has(r.user_id) && localDateKey(r.requested_date));
   return {
     records: sorted,
-    totalHours: sorted.reduce((sum, r) => sum + parseHours(r.clock_in, r.clock_out), 0),
+    totalMinutes: sorted.reduce((sum, r) => sum + minutesBetweenOrZero(r.clock_in, r.clock_out), 0),
     daysWorked: sorted.length,
     approved: sorted.filter((r) => r.status === 'approved').length,
     pending: sorted.filter((r) => r.status === 'pending').length,
@@ -192,7 +185,7 @@ function buildReportRows(records: Attendance[], requests: EmployeeRequest[]): st
       const d = new Date(r.clock_in!);
       const dow = d.getDay();
       const isWeekend = dow >= 5;
-      const hours = r.clock_out ? parseHours(r.clock_in, r.clock_out).toFixed(1) : '—';
+      const hours = r.clock_out ? formatHmHtml(minutesBetween(r.clock_in, r.clock_out)) : '—';
       const dayReqs = requestsForAttendanceRecord(r, requests, records);
       const shift = attendanceShiftCaption(r, records);
       const changeCell = dayReqs.length > 0 ? dayReqs.map((req) => formatChangeRequestHtml(req, r)).join('') : '';
@@ -216,7 +209,7 @@ export function generateEmployeeMonthlyReportHtml(
 ): string {
   const title = `דוח נוכחות חודשי - ${profile.full_name} - ${monthLabel(selectedMonth)}`;
   const rows = buildReportRows(summary.records, summary.changeRequests);
-  const avgHours = summary.daysWorked > 0 ? (summary.totalHours / summary.daysWorked).toFixed(1) : '—';
+  const avgHours = formatHm(averageMinutes(summary.totalMinutes, summary.daysWorked));
 
   return `<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>${title}</title>
     <style>
@@ -267,15 +260,15 @@ export function generateEmployeeMonthlyReportHtml(
       </div>
       <div class="summary-box">
         <div class="summary-item"><div class="val">${summary.daysWorked}</div><div class="lbl">ימי עבודה</div></div>
-        <div class="summary-item"><div class="val">${summary.totalHours.toFixed(1)}</div><div class="lbl">סה"כ שעות</div></div>
-        <div class="summary-item"><div class="val">${avgHours}</div><div class="lbl">ממוצע יומי</div></div>
+        <div class="summary-item"><div class="val">${formatHmHtml(summary.totalMinutes)}</div><div class="lbl">סה"כ שעות</div></div>
+        <div class="summary-item"><div class="val">${avgHours === '—' ? '—' : `<span dir="ltr">${avgHours}</span>`}</div><div class="lbl">ממוצע יומי</div></div>
         ${summary.changeRequests.length > 0 ? `<div class="summary-item"><div class="val">${summary.changeRequests.length}</div><div class="lbl">בקשות שינוי</div></div>` : ''}
         ${summary.missingClockOut > 0 ? `<div class="summary-item"><div class="val" style="color:#e11d48">${summary.missingClockOut}</div><div class="lbl">יציאות חסרות</div></div>` : ''}
       </div>
       <table>
         <thead><tr><th>תאריך</th><th>יום</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th>אימות</th><th>בקשת שינוי</th></tr></thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr><td colspan="4">סה"כ חודשי</td><td>${summary.totalHours.toFixed(1)} שעות</td><td colspan="2"></td></tr></tfoot>
+        <tfoot><tr><td colspan="4">סה"כ חודשי</td><td>${formatHmHtml(summary.totalMinutes)} שעות</td><td colspan="2"></td></tr></tfoot>
       </table>
       <div class="sign-area">
         <div class="sign-box"><div class="line"></div><div class="label">חתימת עובד</div></div>
@@ -324,7 +317,7 @@ export function downloadMonthlyReportCsv(
   const header = ['תאריך', 'משמרת', 'יום', 'כניסה', 'יציאה', 'שעות', 'אימות', 'בקשת שינוי'];
   const rows = summary.records.map((r) => {
     const d = new Date(r.clock_in!);
-    const hours = r.clock_out ? parseHours(r.clock_in, r.clock_out).toFixed(1) : '';
+    const hours = r.clock_out ? formatHm(minutesBetween(r.clock_in, r.clock_out)) : '';
     const dayReqs = requestsForAttendanceRecord(r, summary.changeRequests, summary.records);
     return [
       formatHebrewDate(r.clock_in),
@@ -344,7 +337,7 @@ export function downloadMonthlyReportCsv(
     '',
     '',
     '',
-    summary.totalHours.toFixed(1),
+    formatHm(summary.totalMinutes),
     `${summary.daysWorked} ימי עבודה`,
     '',
   ].map(csvEscape));
