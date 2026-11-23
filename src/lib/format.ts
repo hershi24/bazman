@@ -1,10 +1,11 @@
 import { formatHmLabel, minutesBetween } from '@/lib/workDuration';
+import { dateLocale, type Lang } from '@/lib/i18n';
 
-export function formatHebrewDate(d: string | Date | null): string {
+export function formatHebrewDate(d: string | Date | null, lang: Lang = 'he'): string {
   if (!d) return '—';
   const date = typeof d === 'string' ? new Date(d) : d;
   if (isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('he-IL', {
+  return new Intl.DateTimeFormat(dateLocale(lang), {
     timeZone: 'Asia/Jerusalem',
     day: '2-digit',
     month: '2-digit',
@@ -41,8 +42,8 @@ export function relativeDays(d: string | Date | null): string {
   return `בעוד ${Math.abs(diff)} ימים`;
 }
 
-export function hoursBetween(start: string | null, end: string | null): string {
-  return formatHmLabel(minutesBetween(start, end));
+export function hoursBetween(start: string | null, end: string | null, lang: Lang = 'he'): string {
+  return formatHmLabel(minutesBetween(start, end), lang);
 }
 
 export function initials(name: string): string {

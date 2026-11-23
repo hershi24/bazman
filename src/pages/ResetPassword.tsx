@@ -2,9 +2,13 @@ import { useState, type FormEvent } from 'react';
 import { Lock, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+import { useLang } from '@/lib/LanguageProvider';
+import LanguageToggle from '@/components/LanguageToggle';
+import { localizeError } from '@/lib/i18n';
 
 export default function ResetPassword() {
   const { exitRecovery } = useAuth();
+  const { t, lang } = useLang();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
@@ -15,25 +19,28 @@ export default function ResetPassword() {
     e.preventDefault();
     setError(null);
     if (password.length < 6) {
-      setError('הסיסמה חייבת להכיל לפחות 6 תווים.');
+      setError(t('passwordMin'));
       return;
     }
     if (password !== confirm) {
-      setError('הסיסמאות אינן תואמות.');
+      setError(t('passwordsMismatch'));
       return;
     }
     setBusy(true);
     const { error } = await supabase.auth.updateUser({ password });
     setBusy(false);
     if (error) {
-      setError(error.message);
+      setError(localizeError(error.message, t, lang));
     } else {
       setDone(true);
     }
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-bl from-brand-950 via-brand-800 to-brand-600 p-6">
+    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-bl from-brand-950 via-brand-800 to-brand-600 p-6">
+      <div className="absolute top-4 end-4 z-20">
+        <LanguageToggle variant="onDark" />
+      </div>
       <div className="w-full max-w-md animate-fade-in-up rounded-3xl bg-white p-8 shadow-2xl">
         <div className="mb-6 flex items-center gap-3 text-brand-700">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-100">
@@ -41,30 +48,30 @@ export default function ResetPassword() {
           </div>
           <div>
             <h1 className="text-xl font-extrabold text-slate-800">BeZman</h1>
-            <p className="text-sm text-slate-500">איפוס סיסמה</p>
+            <p className="text-sm text-slate-500">{t('resetPwPageTitle')}</p>
           </div>
         </div>
 
         {done ? (
           <div className="space-y-4 text-center">
             <CheckCircle2 className="mx-auto h-16 w-16 text-emerald-500" />
-            <h2 className="text-xl font-bold text-slate-800">הסיסמה עודכנה בהצלחה!</h2>
-            <p className="text-sm text-slate-500">כעת תוכל להתחבר למערכת עם הסיסמה החדשה.</p>
+            <h2 className="text-xl font-bold text-slate-800">{t('passwordUpdatedTitle')}</h2>
+            <p className="text-sm text-slate-500">{t('passwordUpdatedBody')}</p>
             <button
               onClick={exitRecovery}
               className="w-full rounded-xl bg-brand-600 px-4 py-3 font-bold text-white transition hover:bg-brand-700"
             >
-              חזרה לכניסה
+              {t('backToLogin')}
             </button>
           </div>
         ) : (
           <>
-            <h2 className="text-2xl font-extrabold text-slate-800">בחירת סיסמה חדשה</h2>
-            <p className="mt-1 text-sm text-slate-500">הזן את הסיסמה החדשה שלך לפחות 6 תווים</p>
+            <h2 className="text-2xl font-extrabold text-slate-800">{t('chooseNewPassword')}</h2>
+            <p className="mt-1 text-sm text-slate-500">{t('chooseNewPasswordHint')}</p>
 
             <form onSubmit={submit} className="mt-6 space-y-4">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">סיסמה חדשה</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">{t('newPassword')}</label>
                 <input
                   type="password"
                   required
@@ -75,7 +82,7 @@ export default function ResetPassword() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">אימות סיסמה</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">{t('confirmPassword')}</label>
                 <input
                   type="password"
                   required
@@ -99,7 +106,7 @@ export default function ResetPassword() {
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white shadow-lg transition hover:bg-brand-700 disabled:opacity-60"
               >
                 {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Lock className="h-5 w-5" />}
-                {busy ? 'מעדכן...' : 'עדכן סיסמה'}
+                {busy ? t('updating') : t('updatePassword')}
               </button>
             </form>
           </>
