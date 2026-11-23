@@ -29,9 +29,10 @@ export function formatHm(totalMinutes: number | null | undefined): string {
   return `${hours}:${String(minutes).padStart(2, '0')}`;
 }
 
-export function formatHmLabel(totalMinutes: number | null | undefined): string {
+export function formatHmLabel(totalMinutes: number | null | undefined, lang: 'he' | 'en' = 'he'): string {
   const hm = formatHm(totalMinutes);
-  return hm === '—' ? '—' : `${hm} שעות`;
+  if (hm === '—') return '—';
+  return lang === 'en' ? `${hm} hours` : `${hm} שעות`;
 }
 
 export function formatHmHtml(totalMinutes: number | null | undefined): string {

@@ -38,6 +38,11 @@ export function isTodayAttendance(record: ClockTimes, now: Date = new Date()): b
   return false;
 }
 
-export function openShiftLabel(record: ClockTimes, now: Date = new Date()): 'פתוחה' | 'יציאה חסרה' {
-  return isActiveOpenShift(record, now) ? 'פתוחה' : 'יציאה חסרה';
+export function openShiftLabel(
+  record: ClockTimes,
+  now: Date = new Date(),
+  lang: 'he' | 'en' = 'he',
+): string {
+  if (isActiveOpenShift(record, now)) return lang === 'en' ? 'Open' : 'פתוחה';
+  return lang === 'en' ? 'Missing clock-out' : 'יציאה חסרה';
 }

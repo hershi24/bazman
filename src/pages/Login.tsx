@@ -1,14 +1,18 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Clock, LogIn, Loader2, Fingerprint, MapPin, QrCode, Mail, ArrowRight, CheckCircle2, XCircle } from 'lucide-react';
+import { Clock, LogIn, Loader2, Fingerprint, MapPin, QrCode, Mail, ArrowRight, ArrowLeft, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { emailAccountPassword } from '@/lib/updateAuth';
+import { useLang } from '@/lib/LanguageProvider';
+import LanguageToggle from '@/components/LanguageToggle';
+import { localizeError, type MsgKey } from '@/lib/i18n';
 
 export default function Login() {
   const { signIn } = useAuth();
+  const { t, lang, isRtl } = useLang();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState<MsgKey | null>(null);
+  const [infoKey, setInfoKey] = useState<MsgKey | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [showReset, setShowReset] = useState(false);
@@ -25,9 +29,9 @@ export default function Login() {
       return;
     }
     if (type === 'email_change') {
-      setInfo('האימייל אושר. אפשר להתחבר עם הכתובת החדשה.');
+      setInfoKey('emailConfirmed');
     } else if (errCode === 'otp_expired' || hash.get('error') === 'access_denied') {
-      setError('הקישור פג תוקף. אם ביקשת איפוס סיסמה, שלח קישור חדש.');
+      setErrorKey('linkExpired');
     }
     if (type || errCode || hash.get('error')) {
       window.history.replaceState({}, '', window.location.pathname);
@@ -36,11 +40,12 @@ export default function Login() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setError(null);
+    setErrorKey(null);
+    setInfoKey(null);
     setBusy(true);
     const { error } = await signIn(email.trim(), password.trim());
     setBusy(false);
-    if (error) setError('הפרטים שגויים. נסה שוב.');
+    if (error) setErrorKey('wrongDetails');
   }
 
   async function sendReset(e: FormEvent) {
@@ -48,26 +53,28 @@ export default function Login() {
     setResetMsg(null);
     const addr = resetEmail.trim().toLowerCase();
     if (!addr || !addr.includes('@')) {
-      setResetMsg({ type: 'err', text: 'נא להזין כתובת אימייל.' });
+      setResetMsg({ type: 'err', text: t('needEmail') });
       return;
     }
     setResetBusy(true);
     try {
       const { error } = await emailAccountPassword(addr, window.location.origin);
       if (error) {
-        setResetMsg({ type: 'err', text: error });
+        setResetMsg({ type: 'err', text: localizeError(error, t, lang) });
         return;
       }
       setResetMsg({
         type: 'ok',
-        text: 'אם החשבון קיים, נשלח קישור לאימייל. בדוק גם בספאם.',
+        text: t('resetSent'),
       });
     } catch {
-      setResetMsg({ type: 'err', text: 'שליחת המייל נכשלה. נסה שוב.' });
+      setResetMsg({ type: 'err', text: t('resetFailed') });
     } finally {
       setResetBusy(false);
     }
   }
+
+  const BackArrow = isRtl ? ArrowRight : ArrowLeft;
 
   return (
     <div className="relative flex min-h-screen flex-col lg:flex-row">
@@ -80,6 +87,10 @@ export default function Login() {
         <div className="absolute inset-0 bg-slate-950/50" />
       </div>
 
+      <div className="absolute top-4 end-4 z-20">
+        <LanguageToggle variant="onDark" />
+      </div>
+
       {/* Brand panel */}
       <div className="relative z-10 flex flex-1 flex-col justify-between overflow-hidden p-8 text-white lg:p-14">
         <div className="relative flex items-center gap-3">
@@ -88,23 +99,24 @@ export default function Login() {
           </div>
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight">BeZman</h1>
-            <p className="text-sm text-brand-100">פתרונות נוכחות לעסקים</p>
+            <p className="text-sm text-brand-100">{t('loginTagline')}</p>
           </div>
         </div>
 
         <div className="relative my-10 max-w-md">
           <h2 className="text-3xl font-extrabold leading-tight lg:text-4xl">
-            נהלו נוכחות, משמרות ודיווחים — <span className="text-accent-300">בקלות ובדיוק</span>
+            {t('loginHeadline')}
+            <span className="text-accent-300">{t('loginHeadlineAccent')}</span>
           </h2>
           <p className="mt-4 text-brand-100">
-            מערכת ארגונית למעקב נוכחות עם אימות GPS וסריקת QR, ניהול משמרות, בקשות עובדים ודוחות בזמן אמת.
+            {t('loginSub')}
           </p>
 
           <div className="mt-8 grid grid-cols-3 gap-3 text-center">
             {[
-              { icon: MapPin, label: 'אימות GPS' },
-              { icon: QrCode, label: 'סריקת QR' },
-              { icon: Fingerprint, label: 'דיוק מלא' },
+              { icon: MapPin, label: t('featGps') },
+              { icon: QrCode, label: t('featQr') },
+              { icon: Fingerprint, label: t('featAccuracy') },
             ].map((f) => (
               <div key={f.label} className="rounded-2xl bg-white/10 p-4 backdrop-blur">
                 <f.icon className="mx-auto h-6 w-6 text-accent-300" />
@@ -115,9 +127,9 @@ export default function Login() {
         </div>
 
         <div className="relative space-y-1 text-xs text-brand-200">
-          <p>© 2026 BeZman — כל הזכויות שמורות</p>
+          <p>{t('copyright')}</p>
           <p>
-            פותח על ידי <span className="font-semibold text-brand-100">גליצקי פתרונות טכנולוגיים לעסקים</span>
+            {t('developedBy')} <span className="font-semibold text-brand-100">{t('developedByName')}</span>
           </p>
         </div>
       </div>
@@ -127,12 +139,12 @@ export default function Login() {
         <div className="w-full max-w-md animate-fade-in-up rounded-3xl bg-white p-8 shadow-2xl">
           {!showReset ? (
             <>
-              <h2 className="text-2xl font-extrabold text-slate-800">כניסה למערכת</h2>
-              <p className="mt-1 text-sm text-slate-500">הזן את פרטי החיבור</p>
+              <h2 className="text-2xl font-extrabold text-slate-800">{t('loginTitle')}</h2>
+              <p className="mt-1 text-sm text-slate-500">{t('loginSubtitle')}</p>
 
               <form onSubmit={submit} noValidate className="mt-6 space-y-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">אימייל</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">{t('email')}</label>
                   <input
                     type="text"
                     inputMode="email"
@@ -148,7 +160,7 @@ export default function Login() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">סיסמה</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">{t('password')}</label>
                   <input
                     type="password"
                     required
@@ -159,11 +171,11 @@ export default function Login() {
                   />
                 </div>
 
-                {info && (
-                  <div className="rounded-xl bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 animate-fade-in">{info}</div>
+                {infoKey && (
+                  <div className="rounded-xl bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 animate-fade-in">{t(infoKey)}</div>
                 )}
-                {error && (
-                  <div className="rounded-xl bg-rose-50 px-4 py-2.5 text-sm text-rose-700 animate-fade-in">{error}</div>
+                {errorKey && (
+                  <div className="rounded-xl bg-rose-50 px-4 py-2.5 text-sm text-rose-700 animate-fade-in">{t(errorKey)}</div>
                 )}
 
                 <button
@@ -172,7 +184,7 @@ export default function Login() {
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white shadow-lg transition hover:bg-brand-700 disabled:opacity-60"
                 >
                   {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <LogIn className="h-5 w-5" />}
-                  {busy ? 'מתחבר...' : 'כניסה'}
+                  {busy ? t('signingIn') : t('signIn')}
                 </button>
               </form>
 
@@ -185,17 +197,17 @@ export default function Login() {
                 className="mt-4 flex w-full items-center justify-center gap-1.5 text-sm font-medium text-brand-600 transition hover:text-brand-700"
               >
                 <Mail className="h-4 w-4" />
-                שכחת סיסמה?
+                {t('forgotPassword')}
               </button>
             </>
           ) : (
             <>
-              <h2 className="text-2xl font-extrabold text-slate-800">איפוס סיסמה</h2>
-              <p className="mt-1 text-sm text-slate-500">נשלח לאימייל שלך קישור לבחירת סיסמה חדשה</p>
+              <h2 className="text-2xl font-extrabold text-slate-800">{t('resetTitle')}</h2>
+              <p className="mt-1 text-sm text-slate-500">{t('resetSubtitle')}</p>
 
               <form onSubmit={sendReset} noValidate className="mt-6 space-y-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">אימייל</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">{t('email')}</label>
                   <input
                     type="text"
                     inputMode="email"
@@ -228,7 +240,7 @@ export default function Login() {
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white shadow-lg transition hover:bg-brand-700 disabled:opacity-60"
                 >
                   {resetBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mail className="h-5 w-5" />}
-                  {resetBusy ? 'שולח...' : 'שלח קישור לאימייל'}
+                  {resetBusy ? t('sendingLink') : t('sendResetLink')}
                 </button>
               </form>
 
@@ -239,8 +251,8 @@ export default function Login() {
                 }}
                 className="mt-4 flex w-full items-center justify-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-slate-700"
               >
-                <ArrowRight className="h-4 w-4" />
-                חזרה לכניסה
+                <BackArrow className="h-4 w-4" />
+                {t('backToLogin')}
               </button>
             </>
           )}

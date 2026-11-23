@@ -72,7 +72,7 @@ export function TruncatedText({ text, className = '' }: { text: string; classNam
         ? createPortal(
             <div
               role="tooltip"
-              className="pointer-events-none fixed z-[200] max-w-sm rounded-xl bg-slate-800 px-3 py-2 text-right text-xs font-medium leading-relaxed text-white shadow-xl"
+              className="pointer-events-none fixed z-[200] max-w-sm rounded-xl bg-slate-800 px-3 py-2 text-start text-xs font-medium leading-relaxed text-white shadow-xl"
               style={{ top: tip.top, right: tip.right }}
             >
               {text}

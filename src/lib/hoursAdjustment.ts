@@ -93,27 +93,31 @@ export function parseHoursAdjustment(description: string | null | undefined): Ho
   };
 }
 
-export function shiftLabel(shiftNumber: number | null | undefined, totalShifts?: number): string {
+export function shiftLabel(
+  shiftNumber: number | null | undefined,
+  totalShifts?: number,
+  lang: 'he' | 'en' = 'he',
+): string {
   if (!shiftNumber || shiftNumber < 1) return '';
   if (totalShifts !== undefined && totalShifts <= 1) return '';
   if (totalShifts === undefined && shiftNumber <= 1) return '';
-  return `משמרת ${shiftNumber}`;
+  return lang === 'en' ? `Shift ${shiftNumber}` : `משמרת ${shiftNumber}`;
 }
 
-export function hoursAdjustmentSummary(adj: HoursAdjustment): string {
+export function hoursAdjustmentSummary(adj: HoursAdjustment, lang: 'he' | 'en' = 'he'): string {
   const parts: string[] = [];
-  const shift = shiftLabel(adj.shiftNumber);
+  const shift = shiftLabel(adj.shiftNumber, undefined, lang);
   if (shift) parts.push(shift);
-  if (adj.clockIn) parts.push(`כניסה ${adj.clockIn}`);
-  if (adj.clockOut) parts.push(`יציאה ${adj.clockOut}`);
+  if (adj.clockIn) parts.push(lang === 'en' ? `In ${adj.clockIn}` : `כניסה ${adj.clockIn}`);
+  if (adj.clockOut) parts.push(lang === 'en' ? `Out ${adj.clockOut}` : `יציאה ${adj.clockOut}`);
   return parts.join(' · ');
 }
 
-export function originalHoursSummary(adj: HoursAdjustment): string {
+export function originalHoursSummary(adj: HoursAdjustment, lang: 'he' | 'en' = 'he'): string {
   if (!adj.originalClockIn && !adj.originalClockOut) return '';
   const parts: string[] = [];
-  if (adj.originalClockIn) parts.push(`כניסה ${adj.originalClockIn}`);
-  if (adj.originalClockOut) parts.push(`יציאה ${adj.originalClockOut}`);
+  if (adj.originalClockIn) parts.push(lang === 'en' ? `In ${adj.originalClockIn}` : `כניסה ${adj.originalClockIn}`);
+  if (adj.originalClockOut) parts.push(lang === 'en' ? `Out ${adj.originalClockOut}` : `יציאה ${adj.originalClockOut}`);
   return parts.join(' · ');
 }
 

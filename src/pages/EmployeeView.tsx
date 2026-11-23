@@ -26,6 +26,17 @@ import {
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { updateUserAuth } from '@/lib/updateAuth';
+import { useLang } from '@/lib/LanguageProvider';
+import LanguageToggle from '@/components/LanguageToggle';
+import {
+  DAY_NAMES_SHORT_EN,
+  DAY_NAMES_SHORT_HE,
+  FEEDBACK_CATEGORY_KEYS,
+  REQUEST_TYPES,
+  localizeError,
+  requestTypeLabel,
+  statusLabel,
+} from '@/lib/i18n';
 import type { Attendance, EmployeeRequest, AllowedLocation, EmployeeLocation } from '@/types';
 import { formatHebrewDate, formatTime, hoursBetween } from '@/lib/format';
 import {
@@ -39,7 +50,7 @@ import {
   formatChangeRequestsPlain,
   requestsForAttendanceRecord,
   attendanceShiftCaption,
-  DAY_NAMES_LONG,
+  dayNameLong,
 } from '@/lib/monthlyReport';
 import {
   formatHoursAdjustmentPayload,
@@ -100,26 +111,32 @@ function NavButton({ active, onClick, label, Icon }: { active: boolean; onClick:
 
 export default function EmployeeView() {
   const { profile, signOut } = useAuth();
+  const { t, bindUser } = useLang();
   const [tab, setTab] = useState<Tab>('clock');
+
+  useEffect(() => {
+    if (profile?.id) bindUser(profile.id);
+  }, [profile?.id, bindUser]);
 
   return (
     <div className="min-h-screen bg-slate-100">
       {/* Top bar */}
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
               <Clock className="h-5 w-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-extrabold text-slate-800">BeZman</p>
-              <p className="text-[11px] text-slate-400">פתרונות נוכחות לעסקים · גליצקי פתרונות טכנולוגיים</p>
+              <p className="truncate text-[11px] text-slate-400">{t('brandTagline')}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <LanguageToggle />
             <div className="flex items-center gap-2">
               <Avatar name={profile?.full_name ?? '?'} size="sm" />
-              <div className="hidden text-right sm:block">
+              <div className="hidden text-start sm:block">
                 <p className="text-sm font-bold text-slate-700">{profile?.full_name}</p>
                 <p className="text-[11px] text-slate-400">{profile?.employee_number}</p>
               </div>
@@ -127,7 +144,7 @@ export default function EmployeeView() {
             <button
               onClick={signOut}
               className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
-              title="התנתק"
+              title={t('signOut')}
             >
               <LogOut className="h-5 w-5" />
             </button>
@@ -138,11 +155,11 @@ export default function EmployeeView() {
       <main className="mx-auto max-w-3xl px-4 py-6">
         {/* Tabs */}
         <div className="mb-6 flex flex-wrap gap-2">
-          <NavButton active={tab === 'clock'} onClick={() => setTab('clock')} label="דיווח נוכחות" Icon={Clock} />
-          <NavButton active={tab === 'request'} onClick={() => setTab('request')} label="הגשת בקשה" Icon={Send} />
-          <NavButton active={tab === 'history'} onClick={() => setTab('history')} label="היסטוריית דיווחים" Icon={History} />
-          <NavButton active={tab === 'feedback'} onClick={() => setTab('feedback')} label="הצעות למפתח" Icon={MessageSquarePlus} />
-          <NavButton active={tab === 'account'} onClick={() => setTab('account')} label="החשבון שלי" Icon={UserCog} />
+          <NavButton active={tab === 'clock'} onClick={() => setTab('clock')} label={t('tabClock')} Icon={Clock} />
+          <NavButton active={tab === 'request'} onClick={() => setTab('request')} label={t('tabRequest')} Icon={Send} />
+          <NavButton active={tab === 'history'} onClick={() => setTab('history')} label={t('tabHistory')} Icon={History} />
+          <NavButton active={tab === 'feedback'} onClick={() => setTab('feedback')} label={t('tabFeedback')} Icon={MessageSquarePlus} />
+          <NavButton active={tab === 'account'} onClick={() => setTab('account')} label={t('tabAccount')} Icon={UserCog} />
         </div>
 
         {tab === 'clock' && <ClockPanel />}
@@ -153,7 +170,7 @@ export default function EmployeeView() {
 
         <footer className="mt-8 border-t border-slate-200 pt-4 text-center text-[11px] text-slate-400">
           <p>
-            פותח על ידי <span className="font-semibold text-slate-500">גליצקי פתרונות טכנולוגיים לעסקים</span>
+            {t('developedBy')} <span className="font-semibold text-slate-500">{t('developedByName')}</span>
           </p>
         </footer>
       </main>
@@ -166,6 +183,7 @@ type FlowStage = 'idle' | 'checking-gps' | 'gps-failed' | 'out-of-area' | 'scann
 
 function ClockPanel() {
   const { profile } = useAuth();
+  const { t, lang } = useLang();
   const [todayRecords, setTodayRecords] = useState<Attendance[]>([]);
   const [openShift, setOpenShift] = useState<Attendance | null>(null);
   const [loading, setLoading] = useState(true);
@@ -294,7 +312,7 @@ function ClockPanel() {
         scanRaf.current = requestAnimationFrame(tick);
       } catch {
         setStage('qr-unapproved');
-        setMsg({ type: 'err', text: 'לא ניתן לפתוח את המצלמה. ודא שהדפדפן מורשה להשתמש במצלמה, ושהאתר נפתח ב-HTTPS.' });
+        setMsg({ type: 'err', text: t('cameraDenied') });
       }
     }
     start();
@@ -313,7 +331,7 @@ function ClockPanel() {
     const approved = matchWorkplaceQr(rawValue, locationsRef.current);
     if (!approved) {
       setStage('qr-unapproved');
-      setMsg({ type: 'err', text: 'קוד ה-QR שנסרק אינו מאושר לעובד זה, או שאינו קוד מקום עבודה תקין.' });
+      setMsg({ type: 'err', text: t('qrNotApproved') });
       return;
     }
     setNearest(approved);
@@ -326,19 +344,19 @@ function ClockPanel() {
     setStage('checking-gps');
     if (locations.length === 0) {
       setStage('gps-failed');
-      setMsg({ type: 'err', text: 'אין מקומות מותרים מוגדרים עבורך. פנה למנהל.' });
+      setMsg({ type: 'err', text: t('noLocations') });
       return;
     }
     if (!navigator.geolocation) {
       setStage('gps-failed');
-      setMsg({ type: 'err', text: 'המכשיר אינו תומך באיתור מיקום.' });
+      setMsg({ type: 'err', text: t('noGeo') });
       return;
     }
     if (typeof window !== 'undefined' && !window.isSecureContext) {
       setStage('gps-failed');
       setMsg({
         type: 'err',
-        text: 'דפדפן דורש חיבור מאובטח (HTTPS) לגישה למיקום. יש לפתוח את האתר דרך כתובת מאובטחת.',
+        text: t('needHttps'),
       });
       return;
     }
@@ -361,18 +379,18 @@ function ClockPanel() {
         } else {
           setNearest(null);
           setStage('out-of-area');
-          setMsg({ type: 'err', text: 'המיקום אינו באזור מותר. יש להיות בתוך אזור העבודה לדיווח.' });
+          setMsg({ type: 'err', text: t('outOfArea') });
         }
       },
       (err) => {
         setStage('gps-failed');
-        let text = 'שגיאה באיתור המיקום.';
+        let text = t('gpsError');
         if (err.code === err.PERMISSION_DENIED) {
-          text = 'גישה למיקום נדחתה. יש לאפשר גישה למיקום בהגדרות הדפדפן ובהגדרות המכשיר כדי לדווח.';
+          text = t('gpsDenied');
         } else if (err.code === err.POSITION_UNAVAILABLE) {
-          text = 'לא ניתן לאתר את המיקום. יש לוודא ש-GPS מופעל ויש קליטה, ולנסות שוב.';
+          text = t('gpsUnavailable');
         } else if (err.code === err.TIMEOUT) {
-          text = 'איתור המיקום ארך זמן רב מדי. יש לנסות שוב באזור פתוח.';
+          text = t('gpsTimeout');
         }
         setMsg({ type: 'err', text });
       },
@@ -421,16 +439,16 @@ function ClockPanel() {
           status: 'approved',
         });
       if (error) {
-        setMsg({ type: 'err', text: 'הדיווח נכשל. נסה שוב.' });
+        setMsg({ type: 'err', text: t('clockFailed') });
         setStage('idle');
       } else {
-        setMsg({ type: 'ok', text: 'הכניסה נרשמה בהצלחה!' });
+        setMsg({ type: 'ok', text: t('clockInOk') });
         setStage('idle');
         await loadToday();
       }
     } else {
       if (!currentOpen) {
-        setMsg({ type: 'err', text: 'אין משמרת פתוחה ליציאה.' });
+        setMsg({ type: 'err', text: t('noOpenShift') });
         setStage('idle');
       } else {
         const { error } = await supabase
@@ -442,10 +460,10 @@ function ClockPanel() {
           })
           .eq('id', currentOpen.id);
         if (error) {
-          setMsg({ type: 'err', text: 'עדכון היציאה נכשל.' });
+          setMsg({ type: 'err', text: t('clockOutFailed') });
           setStage('idle');
         } else {
-          setMsg({ type: 'ok', text: 'היציאה נרשמה בהצלחה! אפשר לדווח כניסה נוספת מאוחר יותר.' });
+          setMsg({ type: 'ok', text: t('clockOutOk') });
           setStage('idle');
           await loadToday();
         }
@@ -482,9 +500,9 @@ function ClockPanel() {
       <Card className="p-5">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-slate-500">היום, {formatHebrewDate(new Date())}</p>
+            <p className="text-sm text-slate-500">{t('today', { date: formatHebrewDate(new Date(), lang) })}</p>
             <p className="mt-1 text-lg font-extrabold text-slate-800">
-              {isOnShift ? 'נוכח כעת' : todayRecords.length > 0 ? 'מחוץ למשמרת · אפשר לדווח שוב' : 'טרם דיווחת הגעה'}
+              {isOnShift ? t('statusOnShift') : todayRecords.length > 0 ? t('statusOffShift') : t('statusNotIn')}
             </p>
           </div>
           <div
@@ -497,7 +515,7 @@ function ClockPanel() {
         </div>
         {isOnShift && openShift.clock_in && (
           <div className="mt-4 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 p-4 text-center text-white shadow-md">
-            <p className="text-[11px] font-medium text-emerald-50">זמן עבודה כעת</p>
+            <p className="text-[11px] font-medium text-emerald-50">{t('workTimeNow')}</p>
             <p className="mt-1 font-mono text-3xl font-extrabold tabular-nums tracking-tight">
               <LiveTimer startTime={openShift.clock_in} />
             </p>
@@ -506,18 +524,18 @@ function ClockPanel() {
         {lastRecord && (
           <div className="mt-4 grid grid-cols-3 gap-3 text-center">
             <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-[11px] text-slate-400">{isOnShift ? 'כניסה נוכחית' : 'כניסה אחרונה'}</p>
+              <p className="text-[11px] text-slate-400">{isOnShift ? t('currentClockIn') : t('lastClockIn')}</p>
               <p className="text-sm font-bold text-slate-700">{formatTime(isOnShift ? openShift.clock_in : lastRecord.clock_in)}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-[11px] text-slate-400">יציאה</p>
+              <p className="text-[11px] text-slate-400">{t('clockOut')}</p>
               <p className="text-sm font-bold text-slate-700">
                 {formatTime(isOnShift ? openShift.clock_out : lastRecord.clock_out)}
               </p>
             </div>
             <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-[11px] text-slate-400">סה"כ היום</p>
-              <p dir="ltr" className="text-sm font-bold tabular-nums text-slate-700">{formatHm(dayMinutes)} שעות</p>
+              <p className="text-[11px] text-slate-400">{t('totalToday')}</p>
+              <p dir="ltr" className="text-sm font-bold tabular-nums text-slate-700">{formatHm(dayMinutes)} {t('hoursUnit')}</p>
             </div>
           </div>
         )}
@@ -526,7 +544,7 @@ function ClockPanel() {
       {/* Progress / error states */}
       {busy || stage === 'gps-failed' || stage === 'out-of-area' || stage === 'qr-unapproved' ? (
         <Card className="p-5">
-          <h3 className="mb-4 text-base font-bold text-slate-800">תהליך הדיווח</h3>
+          <h3 className="mb-4 text-base font-bold text-slate-800">{t('reportProcess')}</h3>
           <div className="space-y-3">
             {/* GPS step */}
             {(methodRef.current === 'location' || stage === 'checking-gps' || stage === 'gps-failed' || stage === 'out-of-area') && (
@@ -554,19 +572,19 @@ function ClockPanel() {
                     )}
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-slate-700">אימות מיקום GPS</p>
+                    <p className="text-sm font-bold text-slate-700">{t('gpsVerify')}</p>
                     <p className="text-xs text-slate-400">
                       {stage === 'checking-gps'
-                        ? 'מאתר מיקום...'
+                        ? t('locating')
                         : gps || stage === 'submitting'
                           ? nearest
-                            ? `באזור מותר: ${nearest.name}`
-                            : 'מיקום אומת'
+                            ? t('inAllowedArea', { name: nearest.name })
+                            : t('locationVerified')
                           : stage === 'gps-failed'
-                            ? 'גישה למיקום נדחתה'
+                            ? t('locationDenied')
                             : stage === 'out-of-area'
-                              ? 'מחוץ לאזור מותר'
-                              : 'המכשיר יאתר את המיקום אוטומטית'}
+                              ? t('outsideArea')
+                              : t('deviceWillLocate')}
                     </p>
                   </div>
                 </div>
@@ -599,15 +617,15 @@ function ClockPanel() {
                     )}
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-slate-700">סריקת קוד QR</p>
+                    <p className="text-sm font-bold text-slate-700">{t('qrScan')}</p>
                     <p className="text-xs text-slate-400">
                       {stage === 'scanning-qr'
-                        ? 'מכוון את המצלמה אל הקוד...'
+                        ? t('aimCamera')
                         : stage === 'submitting'
-                          ? 'הקוד אומת בהצלחה'
+                          ? t('qrVerified')
                           : stage === 'qr-unapproved'
-                            ? 'קוד QR אינו מאושר לעובד זה'
-                            : 'סרוק את הקוד המוצב באזור העבודה'}
+                            ? t('qrNotApprovedShort')
+                            : t('scanWorkplaceQr')}
                     </p>
                   </div>
                 </div>
@@ -621,7 +639,7 @@ function ClockPanel() {
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-300"
             >
               <XCircle className="h-5 w-5" />
-              סגירה
+              {t('close')}
             </button>
           )}
         </Card>
@@ -634,7 +652,7 @@ function ClockPanel() {
           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-200 px-4 py-4 text-lg font-extrabold text-slate-600 transition hover:bg-slate-300"
         >
           <XCircle className="h-6 w-6" />
-          ביטול
+          {t('cancel')}
         </button>
       ) : (
         <div className="grid grid-cols-2 gap-3">
@@ -645,8 +663,8 @@ function ClockPanel() {
             }`}
           >
             <QrCode className="h-8 w-8" />
-            <span className="text-sm font-extrabold">{isOnShift ? 'יציאה ב-QR' : 'כניסה ב-QR'}</span>
-            <span className="text-[11px] opacity-80">סרוק קוד</span>
+            <span className="text-sm font-extrabold">{isOnShift ? t('clockOutQr') : t('clockInQr')}</span>
+            <span className="text-[11px] opacity-80">{t('scanCode')}</span>
           </button>
           <button
             onClick={startLocationFlowDirect}
@@ -656,15 +674,15 @@ function ClockPanel() {
             }`}
           >
             <MapPin className="h-8 w-8" />
-            <span className="text-sm font-extrabold">{isOnShift ? 'יציאה במיקום' : 'כניסה במיקום'}</span>
-            <span className="text-[11px] opacity-80">אימות GPS</span>
+            <span className="text-sm font-extrabold">{isOnShift ? t('clockOutGps') : t('clockInGps')}</span>
+            <span className="text-[11px] opacity-80">{t('gpsVerifyShort')}</span>
           </button>
         </div>
       )}
       {locations.length === 0 && !busy && (
         <div className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
           <AlertTriangle className="h-4 w-4" />
-          אין מקומות מותרים מוגדרים עבורך. פנה למנהל.
+          {t('noLocations')}
         </div>
       )}
 
@@ -681,19 +699,19 @@ function ClockPanel() {
 
       {todayRecords.length > 0 && (
         <Card>
-          <SectionTitle title="דיווחים היום" icon={<History className="h-5 w-5" />} />
+          <SectionTitle title={t('todayReports')} icon={<History className="h-5 w-5" />} />
           <div className="divide-y divide-slate-100">
             {[...todayRecords].reverse().map((a, i) => (
               <div key={a.id} className="flex items-center justify-between gap-3 px-5 py-3">
                 <div>
-                  <p className="text-sm font-bold text-slate-700">משמרת {i + 1}</p>
+                  <p className="text-sm font-bold text-slate-700">{t('shiftN', { n: i + 1 })}</p>
                   <p className="text-xs text-slate-400">
                     {formatTime(a.clock_in)} — {formatTime(a.clock_out)} ·{' '}
-                    {a.clock_out ? hoursBetween(a.clock_in, a.clock_out) : 'פתוחה'}
+                    {a.clock_out ? hoursBetween(a.clock_in, a.clock_out, lang) : t('open')}
                   </p>
                 </div>
                 <Badge color={!a.clock_out ? 'green' : a.status === 'approved' ? 'green' : 'amber'}>
-                  {!a.clock_out ? 'פעילה' : a.status === 'approved' ? 'הושלמה' : 'ממתין'}
+                  {!a.clock_out ? t('active') : a.status === 'approved' ? t('completed') : t('pending')}
                 </Badge>
               </div>
             ))}
@@ -706,7 +724,7 @@ function ClockPanel() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-fade-in">
           <div className="relative w-full max-w-sm animate-scale-in rounded-2xl bg-white p-4">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-bold text-slate-800">סריקת קוד QR</h3>
+              <h3 className="font-bold text-slate-800">{t('qrScan')}</h3>
               <button onClick={cancelFlow} className="text-slate-400 hover:text-slate-600">
                 <XCircle className="h-6 w-6" />
               </button>
@@ -720,12 +738,12 @@ function ClockPanel() {
               </div>
               <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-1.5 text-xs text-white/80">
                 <ScanLine className="h-4 w-4" />
-                מכוון את המצלמה אל הקוד
+                {t('aimAtCode')}
               </div>
             </div>
             <p className="mt-3 text-center text-xs text-slate-500">
               <Navigation className="mx-auto mb-1 h-4 w-4 text-accent-500" />
-              מאתר קוד... הסריקה תאושר אוטומטית
+              {t('locatingCode')}
             </p>
           </div>
         </div>
@@ -733,8 +751,6 @@ function ClockPanel() {
     </div>
   );
 }
-
-const DAY_SHORT = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 
 function WorkDateCalendar({
   value,
@@ -749,6 +765,10 @@ function WorkDateCalendar({
   monthKeyStr: string;
   onMonthChange: (key: string) => void;
 }) {
+  const { t, lang, isRtl } = useLang();
+  const dayShort = lang === 'en' ? DAY_NAMES_SHORT_EN : DAY_NAMES_SHORT_HE;
+  const PrevIcon = isRtl ? ChevronRight : ChevronLeft;
+  const NextIcon = isRtl ? ChevronLeft : ChevronRight;
   const [y, m] = monthKeyStr.split('-').map(Number);
   const firstDay = new Date(y, m - 1, 1);
   const daysInMonth = new Date(y, m, 0).getDate();
@@ -776,32 +796,32 @@ function WorkDateCalendar({
           type="button"
           onClick={() => shiftMonth(-1)}
           className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-          aria-label="חודש קודם"
+          aria-label={t('prevMonth')}
         >
-          <ChevronRight className="h-4 w-4" />
+          <PrevIcon className="h-4 w-4" />
         </button>
         <div className="flex items-center gap-2">
           <CalendarDays className="h-4 w-4 text-brand-600" />
-          <span className="text-sm font-extrabold text-slate-800">{monthLabel(monthKeyStr)}</span>
+          <span className="text-sm font-extrabold text-slate-800">{monthLabel(monthKeyStr, lang)}</span>
         </div>
         <button
           type="button"
           onClick={() => shiftMonth(1)}
           className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-          aria-label="חודש הבא"
+          aria-label={t('nextMonth')}
         >
-          <ChevronLeft className="h-4 w-4" />
+          <NextIcon className="h-4 w-4" />
         </button>
       </div>
 
       <div className="mb-1 grid grid-cols-7 gap-1">
-        {DAY_SHORT.map((name, i) => (
+        {dayShort.map((name, i) => (
           <div
-            key={name}
+            key={`${name}-${i}`}
             className={`pb-1 text-center text-[11px] font-bold ${
               i === 5 ? 'text-amber-600' : i === 6 ? 'text-rose-500' : 'text-slate-400'
             }`}
-            title={DAY_NAMES_LONG[i]}
+            title={dayNameLong(i, lang)}
           >
             {name}
           </div>
@@ -850,13 +870,13 @@ function WorkDateCalendar({
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
         <span className="inline-flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          יום עבודה
-          {workCount > 0 ? ` · ${workCount} החודש` : ''}
+          {t('workDay')}
+          {workCount > 0 ? t('workDaysThisMonth', { count: workCount }) : ''}
         </span>
         {value ? (
-          <span className="font-semibold text-slate-700">נבחר: {formatHebrewDate(value)}</span>
+          <span className="font-semibold text-slate-700">{t('selectedDate', { date: formatHebrewDate(value, lang) })}</span>
         ) : (
-          <span>בחרו תאריך לתיקון</span>
+          <span>{t('pickDateToFix')}</span>
         )}
       </div>
     </div>
@@ -866,6 +886,7 @@ function WorkDateCalendar({
 /* ---------------- Request panel ---------------- */
 function RequestPanel() {
   const { profile } = useAuth();
+  const { t, lang } = useLang();
   const [type, setType] = useState(HOURS_ADJUST_TYPE);
   const [description, setDescription] = useState('');
   const [date, setDate] = useState('');
@@ -965,24 +986,24 @@ function RequestPanel() {
     if (hoursMode) {
       if (!date) {
         setBusy(false);
-        setMsg({ type: 'err', text: 'נא לבחור את התאריך שצריך להתאים.' });
+        setMsg({ type: 'err', text: t('needDate') });
         return;
       }
       if (dayShifts.length > 1 && !selectedShiftId) {
         setBusy(false);
-        setMsg({ type: 'err', text: 'יש כמה משמרות ביום הזה. נא לבחור איזו משמרת לתקן.' });
+        setMsg({ type: 'err', text: t('needShiftPick') });
         return;
       }
       if ((!wantIn || !clockIn) && (!wantOut || !clockOut)) {
         setBusy(false);
-        setMsg({ type: 'err', text: 'נא לבחור כניסה ו/או יציאה ולמלא שעה.' });
+        setMsg({ type: 'err', text: t('needInOrOut') });
         return;
       }
       const inTime = wantIn ? clockIn : '';
       const outTime = wantOut ? clockOut : '';
       if (inTime && outTime && inTime === outTime) {
         setBusy(false);
-        setMsg({ type: 'err', text: 'שעת היציאה צריכה להיות אחרי שעת הכניסה.' });
+        setMsg({ type: 'err', text: t('outAfterIn') });
         return;
       }
       const selectedShift =
@@ -1011,9 +1032,9 @@ function RequestPanel() {
     });
     setBusy(false);
     if (error) {
-      setMsg({ type: 'err', text: 'שליחת הבקשה נכשלה.' });
+      setMsg({ type: 'err', text: t('requestFailed') });
     } else {
-      setMsg({ type: 'ok', text: 'הבקשה נשלחה למנהל בהצלחה!' });
+      setMsg({ type: 'ok', text: t('requestSent') });
       setDescription('');
       setDate('');
       setClockIn('');
@@ -1028,38 +1049,36 @@ function RequestPanel() {
     }
   }
 
-  const types = [HOURS_ADJUST_TYPE, 'חופשה', 'מחלה', 'שעות נוספות'];
-
   return (
     <div className="space-y-5">
       <Card>
-        <SectionTitle title="הגשת בקשה למנהל" icon={<Send className="h-5 w-5" />} />
+        <SectionTitle title={t('submitRequestTitle')} icon={<Send className="h-5 w-5" />} />
         <form onSubmit={submit} className="space-y-4 p-5">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">סוג הבקשה</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">{t('requestType')}</label>
             <div className="flex flex-wrap gap-2">
-              {types.map((t) => (
+              {REQUEST_TYPES.map((item) => (
                 <button
-                  key={t}
+                  key={item.value}
                   type="button"
-                  onClick={() => setType(t)}
+                  onClick={() => setType(item.value)}
                   className={`rounded-xl border px-3 py-1.5 text-sm font-medium transition ${
-                    type === t
+                    type === item.value
                       ? 'border-brand-500 bg-brand-50 text-brand-700'
                       : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                   }`}
                 >
-                  {t}
+                  {t(item.key)}
                 </button>
               ))}
             </div>
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              תאריך מבוקש {hoursMode ? <span className="text-rose-500">*</span> : null}
+              {t('requestedDate')} {hoursMode ? <span className="text-rose-500">*</span> : null}
             </label>
             <p className="mb-2 text-xs text-slate-500">
-              ימים שעבדת מסומנים בירוק עם נקודה — כך קל לבחור איזה תאריך לתקן.
+              {t('calendarHint')}
             </p>
             <WorkDateCalendar
               value={date}
@@ -1072,7 +1091,7 @@ function RequestPanel() {
           {hoursMode && dayShifts.length > 1 && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-slate-700">
-                ביום הזה יש {dayShifts.length} משמרות — באיזו לתקן?
+                {t('shiftsTodayPick', { count: dayShifts.length })}
               </p>
               <div className="grid gap-2">
                 {dayShifts.map((s, i) => {
@@ -1090,16 +1109,16 @@ function RequestPanel() {
                         if (origIn) setClockIn(origIn);
                         if (origOut) setClockOut(origOut);
                       }}
-                      className={`rounded-xl border px-4 py-3 text-right transition ${
+                      className={`rounded-xl border px-4 py-3 text-start transition ${
                         selected
                           ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-100'
                           : 'border-slate-200 bg-white hover:border-brand-300'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-extrabold text-slate-800">משמרת {i + 1}</span>
+                        <span className="text-sm font-extrabold text-slate-800">{t('shiftN', { n: i + 1 })}</span>
                         <span className="text-sm font-bold tabular-nums text-slate-600" dir="ltr">
-                          {timeFromIso(s.clock_in) ?? '—'} – {timeFromIso(s.clock_out) ?? 'פתוחה'}
+                          {timeFromIso(s.clock_in) ?? '—'} – {timeFromIso(s.clock_out) ?? t('open')}
                         </span>
                       </div>
                     </button>
@@ -1109,16 +1128,16 @@ function RequestPanel() {
             </div>
           )}
           {hoursMode && date && dayShifts.length === 0 && (
-            <p className="text-xs text-amber-700">אין דיווח ביום הזה עדיין. אפשר לבקש שעות, ואחרי האישור ייווצר דיווח.</p>
+            <p className="text-xs text-amber-700">{t('noReportYet')}</p>
           )}
           {hoursMode && (
             <div className="space-y-3 rounded-2xl border border-brand-100 bg-brand-50/50 p-4">
-              <p className="text-sm font-medium text-slate-700">איזו שעה לתקן?</p>
+              <p className="text-sm font-medium text-slate-700">{t('whichTime')}</p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className={`rounded-xl border bg-white p-3 ${wantIn ? 'border-brand-400' : 'border-slate-200'}`}>
                   <div className="mb-2 flex items-center gap-2">
                     <input type="checkbox" checked={wantIn} onChange={(e) => setWantIn(e.target.checked)} className="h-4 w-4 accent-brand-600" />
-                    <span className="text-sm font-bold text-slate-700">כניסה</span>
+                    <span className="text-sm font-bold text-slate-700">{t('clockIn')}</span>
                   </div>
                   <input
                     type="time"
@@ -1132,7 +1151,7 @@ function RequestPanel() {
                 <label className={`rounded-xl border bg-white p-3 ${wantOut ? 'border-brand-400' : 'border-slate-200'}`}>
                   <div className="mb-2 flex items-center gap-2">
                     <input type="checkbox" checked={wantOut} onChange={(e) => setWantOut(e.target.checked)} className="h-4 w-4 accent-brand-600" />
-                    <span className="text-sm font-bold text-slate-700">יציאה</span>
+                    <span className="text-sm font-bold text-slate-700">{t('clockOut')}</span>
                   </div>
                   <input
                     type="time"
@@ -1146,22 +1165,22 @@ function RequestPanel() {
               </div>
               {wantIn && wantOut && isOvernightClockTimes(clockIn, clockOut) && (
                 <p className="text-xs font-medium text-emerald-700">
-                  יציאה אחרי חצות — אחרי אישור, המשמרת תיסגר ביום למחרת (למשל 22:00–02:00).
+                  {t('overnightHint')}
                 </p>
               )}
-              <p className="text-xs text-slate-500">אחרי שהמנהל יאשר, השעות בדיווח יתעדכנו אוטומטית. משמרת לילה (יציאה אחרי חצות) נתמכת.</p>
+              <p className="text-xs text-slate-500">{t('afterApproveHint')}</p>
             </div>
           )}
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              {hoursMode ? 'הערה (לא חובה)' : 'תיאור הבקשה'}
+              {hoursMode ? t('noteOptional') : t('requestDescription')}
             </label>
             <textarea
               required={!hoursMode}
               rows={hoursMode ? 2 : 4}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder={hoursMode ? 'למשל: שכחתי לדווח יציאה...' : 'פרט את הבקשה...'}
+              placeholder={hoursMode ? t('notePlaceholder') : t('descPlaceholder')}
               className="w-full resize-none rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
             />
           </div>
@@ -1181,16 +1200,16 @@ function RequestPanel() {
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white transition hover:bg-brand-700 disabled:opacity-60"
           >
             {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-            שלח בקשה
+            {t('sendRequest')}
           </button>
         </form>
       </Card>
 
       <Card>
-        <SectionTitle title="הבקשות שלי" icon={<History className="h-5 w-5" />} />
+        <SectionTitle title={t('myRequests')} icon={<History className="h-5 w-5" />} />
         <div className="divide-y divide-slate-100">
           {myRequests.length === 0 && (
-            <p className="px-5 py-8 text-center text-sm text-slate-400">אין בקשות עדיין</p>
+            <p className="px-5 py-8 text-center text-sm text-slate-400">{t('noRequests')}</p>
           )}
           {myRequests.map((r) => {
             const adj = isHoursAdjustmentType(r.type) ? parseHoursAdjustment(r.description) : null;
@@ -1198,29 +1217,29 @@ function RequestPanel() {
             <div key={r.id} className="flex items-center justify-between gap-3 px-5 py-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-slate-700">{r.type}</span>
+                  <span className="text-sm font-bold text-slate-700">{requestTypeLabel(r.type, t, lang)}</span>
                   <Badge
                     color={r.status === 'approved' ? 'green' : r.status === 'rejected' ? 'red' : 'amber'}
                   >
-                    {r.status === 'approved' ? 'אושר' : r.status === 'rejected' ? 'נדחה' : 'ממתין'}
+                    {statusLabel(r.status, t)}
                   </Badge>
                 </div>
                 {adj ? (
                   <>
-                    <p className="mt-0.5 text-xs font-medium text-slate-600">מבוקש: {hoursAdjustmentSummary(adj)}</p>
-                    {originalHoursSummary(adj) ? (
-                      <p className="mt-0.5 text-xs text-slate-400">לפני השינוי: {originalHoursSummary(adj)}</p>
+                    <p className="mt-0.5 text-xs font-medium text-slate-600">{t('requested')}: {hoursAdjustmentSummary(adj, lang)}</p>
+                    {originalHoursSummary(adj, lang) ? (
+                      <p className="mt-0.5 text-xs text-slate-400">{t('beforeChange')}: {originalHoursSummary(adj, lang)}</p>
                     ) : null}
                   </>
                 ) : (
                   <TruncatedText text={r.description || '—'} className="mt-0.5 text-xs text-slate-400" />
                 )}
                 {adj?.note && <TruncatedText text={adj.note} className="mt-0.5 text-xs text-slate-400" />}
-                {r.manager_note && <p className="mt-1 text-xs text-brand-600">תגובת מנהל: {r.manager_note}</p>}
+                {r.manager_note && <p className="mt-1 text-xs text-brand-600">{t('managerReply')}: {r.manager_note}</p>}
               </div>
               <div className="flex shrink-0 items-center gap-1 text-xs text-slate-400">
                 <CalendarDays className="h-3.5 w-3.5" />
-                {formatHebrewDate(r.requested_date)}
+                {formatHebrewDate(r.requested_date, lang)}
               </div>
             </div>
             );
@@ -1234,6 +1253,7 @@ function RequestPanel() {
 /* ---------------- History panel ---------------- */
 function HistoryPanel() {
   const { profile } = useAuth();
+  const { t, lang, isRtl } = useLang();
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(monthKey(now));
   const [records, setRecords] = useState<Attendance[]>([]);
@@ -1279,12 +1299,12 @@ function HistoryPanel() {
 
   function handlePrint() {
     if (!profile || summary.records.length === 0) return;
-    printMonthlyReport(profile, selectedMonth, summary);
+    printMonthlyReport(profile, selectedMonth, summary, lang);
   }
 
   function handleCsv() {
     if (!profile || summary.records.length === 0) return;
-    downloadMonthlyReportCsv(profile, selectedMonth, summary);
+    downloadMonthlyReportCsv(profile, selectedMonth, summary, lang);
   }
 
   if (loading) {
@@ -1297,7 +1317,7 @@ function HistoryPanel() {
 
   return (
     <Card>
-      <SectionTitle title="היסטוריית דיווחים" icon={<History className="h-5 w-5" />} />
+      <SectionTitle title={t('historyTitle')} icon={<History className="h-5 w-5" />} />
 
       <div className="space-y-4 border-b border-slate-100 px-5 pb-5 pt-4">
         <div className="flex flex-col items-center gap-3">
@@ -1305,19 +1325,21 @@ function HistoryPanel() {
             <button
               onClick={() => navigateMonth(-1)}
               className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              aria-label={t('prevMonth')}
             >
-              <ChevronRight className="h-4 w-4" />
+              {isRtl ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
             </button>
             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2">
               <CalendarDays className="h-4 w-4 text-brand-600" />
-              <span className="text-sm font-bold text-slate-800">{monthLabel(selectedMonth)}</span>
+              <span className="text-sm font-bold text-slate-800">{monthLabel(selectedMonth, lang)}</span>
             </div>
             <button
               onClick={() => navigateMonth(1)}
               disabled={selectedMonth >= monthKey(now)}
               className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={t('nextMonth')}
             >
-              <ChevronLeft className="h-4 w-4" />
+              {isRtl ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             </button>
           </div>
 
@@ -1345,22 +1367,22 @@ function HistoryPanel() {
           <div className={`grid grid-cols-2 gap-3 ${summary.changeRequests.length > 0 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
             <div className="rounded-xl border border-brand-100 bg-brand-50 p-3 text-center">
               <p className="text-2xl font-extrabold text-brand-700">{summary.daysWorked}</p>
-              <p className="text-xs text-brand-600">ימי עבודה</p>
+              <p className="text-xs text-brand-600">{t('workDaysLabel')}</p>
             </div>
             <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-center">
               <p dir="ltr" className="text-2xl font-extrabold tabular-nums text-emerald-700">{formatHm(summary.totalMinutes)}</p>
-              <p className="text-xs text-emerald-600">סה"כ שעות</p>
+              <p className="text-xs text-emerald-600">{t('totalHours')}</p>
             </div>
             <div className="rounded-xl border border-accent-100 bg-accent-50 p-3 text-center">
               <p dir="ltr" className="text-2xl font-extrabold tabular-nums text-accent-700">
                 {formatHm(averageMinutes(summary.totalMinutes, summary.daysWorked))}
               </p>
-              <p className="text-xs text-accent-600">ממוצע יומי</p>
+              <p className="text-xs text-accent-600">{t('dailyAvg')}</p>
             </div>
             {summary.changeRequests.length > 0 && (
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
                 <p className="text-2xl font-extrabold text-slate-700">{summary.changeRequests.length}</p>
-                <p className="text-xs text-slate-500">בקשות שינוי</p>
+                <p className="text-xs text-slate-500">{t('changeRequests')}</p>
               </div>
             )}
           </div>
@@ -1369,14 +1391,14 @@ function HistoryPanel() {
 
       {records.length === 0 ? (
         <p className="px-5 py-10 text-center text-sm text-slate-400">
-          אין דיווחים בחודש {monthLabel(selectedMonth)}
+          {t('noReportsInMonth', { month: monthLabel(selectedMonth, lang) })}
         </p>
       ) : (
         <>
           <div className="divide-y divide-slate-100">
             {records.map((a) => {
               const dayReqs = requestsForAttendanceRecord(a, monthRequests, records);
-              const shift = attendanceShiftCaption(a, records);
+              const shift = attendanceShiftCaption(a, records, lang);
               return (
               <div key={a.id} className="flex items-center justify-between gap-3 px-5 py-3">
                 <div className="flex min-w-0 items-center gap-3">
@@ -1391,7 +1413,7 @@ function HistoryPanel() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-slate-700">
-                      {formatHebrewDate(a.clock_in)}
+                      {formatHebrewDate(a.clock_in, lang)}
                       {shift ? (
                         <span className="mr-2 inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-extrabold text-indigo-700">
                           {shift}
@@ -1401,11 +1423,11 @@ function HistoryPanel() {
                     <p className="text-xs text-slate-400">
                       {formatTime(a.clock_in)} — {formatTime(a.clock_out)} ·{' '}
                       {a.clock_out
-                        ? <span dir="ltr" className="tabular-nums">{formatHm(minutesBetween(a.clock_in, a.clock_out))} שעות</span>
-                        : openShiftLabel(a)}
+                        ? <span dir="ltr" className="tabular-nums">{formatHm(minutesBetween(a.clock_in, a.clock_out))} {t('hoursUnit')}</span>
+                        : openShiftLabel(a, undefined, lang)}
                     </p>
                     {dayReqs.length > 0 && (
-                      <p className="mt-1 text-[11px] leading-snug text-slate-600">{formatChangeRequestsPlain(dayReqs)}</p>
+                      <p className="mt-1 text-[11px] leading-snug text-slate-600">{formatChangeRequestsPlain(dayReqs, a, lang)}</p>
                     )}
                   </div>
                 </div>
@@ -1420,8 +1442,8 @@ function HistoryPanel() {
             })}
           </div>
           <div className="flex items-center justify-between border-t-2 border-slate-200 bg-slate-50 px-5 py-3">
-            <span className="text-sm font-extrabold text-slate-700">סה"כ חודשי</span>
-            <span dir="ltr" className="text-lg font-extrabold tabular-nums text-brand-700">{formatHm(summary.totalMinutes)} שעות</span>
+            <span className="text-sm font-extrabold text-slate-700">{t('monthlyTotal')}</span>
+            <span dir="ltr" className="text-lg font-extrabold tabular-nums text-brand-700">{formatHm(summary.totalMinutes)} {t('hoursUnit')}</span>
           </div>
         </>
       )}
@@ -1431,6 +1453,7 @@ function HistoryPanel() {
 
 /* ---------------- Feedback to developer ---------------- */
 function FeedbackPanel() {
+  const { t, lang } = useLang();
   const [category, setCategory] = useState<(typeof FEEDBACK_CATEGORIES)[number]>('הצעה');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1441,7 +1464,7 @@ function FeedbackPanel() {
     setMsg(null);
     const text = message.trim();
     if (text.length < 8) {
-      setMsg({ type: 'err', text: 'נא לכתוב הודעה קצת יותר מפורטת (לפחות 8 תווים).' });
+      setMsg({ type: 'err', text: t('feedbackTooShort') });
       return;
     }
     setBusy(true);
@@ -1451,48 +1474,48 @@ function FeedbackPanel() {
     });
     setBusy(false);
     if (result.error) {
-      setMsg({ type: 'err', text: result.error });
+      setMsg({ type: 'err', text: localizeError(result.error, t, lang) });
       return;
     }
     setMessage('');
-    setMsg({ type: 'ok', text: 'ההודעה נשלחה למפתח המערכת. תודה!' });
+    setMsg({ type: 'ok', text: t('feedbackSent') });
   }
 
   return (
     <Card>
-      <SectionTitle title="הצעות והערות למפתח" icon={<MessageSquarePlus className="h-5 w-5" />} />
+      <SectionTitle title={t('feedbackTitle')} icon={<MessageSquarePlus className="h-5 w-5" />} />
       <form onSubmit={submit} className="space-y-4 p-5">
         <p className="text-sm text-slate-500">
-          כאן אפשר לשלוח הצעה, הערה או דיווח על תקלה ישירות למפתח המערכת.
+          {t('feedbackIntro')}
         </p>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">סוג הפנייה</label>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t('feedbackKind')}</label>
           <div className="flex flex-wrap gap-2">
-            {FEEDBACK_CATEGORIES.map((c) => (
+            {FEEDBACK_CATEGORY_KEYS.map((item) => (
               <button
-                key={c}
+                key={item.value}
                 type="button"
-                onClick={() => setCategory(c)}
+                onClick={() => setCategory(item.value)}
                 className={`rounded-xl border px-3 py-1.5 text-sm font-medium transition ${
-                  category === c
+                  category === item.value
                     ? 'border-brand-500 bg-brand-50 text-brand-700'
                     : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                 }`}
               >
-                {c}
+                {t(item.key)}
               </button>
             ))}
           </div>
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">ההודעה</label>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t('feedbackMessage')}</label>
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             rows={6}
             required
             className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
-            placeholder="כתבו כאן את ההצעה או ההערה..."
+            placeholder={t('feedbackPlaceholder')}
           />
         </div>
         {msg && (
@@ -1507,7 +1530,7 @@ function FeedbackPanel() {
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white transition hover:bg-brand-700 disabled:opacity-60"
         >
           {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-          {busy ? 'שולח...' : 'שלח למפתח'}
+          {busy ? t('sending') : t('sendToDev')}
         </button>
       </form>
     </Card>
@@ -1517,6 +1540,7 @@ function FeedbackPanel() {
 /* ---------------- Account panel ---------------- */
 function AccountPanel() {
   const { profile, session, signOut } = useAuth();
+  const { t, lang } = useLang();
   const [email, setEmail] = useState('');
   const [emailMsg, setEmailMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [emailBusy, setEmailBusy] = useState(false);
@@ -1538,25 +1562,25 @@ function AccountPanel() {
     e.preventDefault();
     setEmailMsg(null);
     if (!email.trim()) {
-      setEmailMsg({ type: 'err', text: 'נא להזין כתובת אימייל.' });
+      setEmailMsg({ type: 'err', text: t('needEmail') });
       return;
     }
     if (!session?.user?.id) {
-      setEmailMsg({ type: 'err', text: 'לא נמצא משתמש מחובר.' });
+      setEmailMsg({ type: 'err', text: t('noLoggedUser') });
       return;
     }
     setEmailBusy(true);
     const { error, applied } = await updateUserAuth({ userId: session.user.id, email: email.trim() });
     setEmailBusy(false);
     if (error) {
-      setEmailMsg({ type: 'err', text: error });
+      setEmailMsg({ type: 'err', text: localizeError(error, t, lang) });
       return;
     }
     if (!applied) {
-      setEmailMsg({ type: 'err', text: 'האימייל לא הוחל מיד. נסה שוב.' });
+      setEmailMsg({ type: 'err', text: t('emailNotApplied') });
       return;
     }
-    setEmailMsg({ type: 'ok', text: 'האימייל עודכן מיד, בלי מייל אישור. התחבר מחדש עם האימייל החדש.' });
+    setEmailMsg({ type: 'ok', text: t('emailUpdated') });
     setTimeout(() => signOut(), 2500);
   }
 
@@ -1564,20 +1588,20 @@ function AccountPanel() {
     e.preventDefault();
     setPassMsg(null);
     if (newPass.length < 6) {
-      setPassMsg({ type: 'err', text: 'הסיסמה חייבת להכיל לפחות 6 תווים.' });
+      setPassMsg({ type: 'err', text: t('passwordMin') });
       return;
     }
     if (!session?.user?.id) {
-      setPassMsg({ type: 'err', text: 'לא נמצא משתמש מחובר.' });
+      setPassMsg({ type: 'err', text: t('noLoggedUser') });
       return;
     }
     setPassBusy(true);
     const { error } = await updateUserAuth({ userId: session.user.id, password: newPass });
     setPassBusy(false);
     if (error) {
-      setPassMsg({ type: 'err', text: error });
+      setPassMsg({ type: 'err', text: localizeError(error, t, lang) });
     } else {
-      setPassMsg({ type: 'ok', text: 'הסיסמה עודכנה בהצלחה!' });
+      setPassMsg({ type: 'ok', text: t('passwordUpdated') });
       setNewPass('');
     }
   }
@@ -1585,11 +1609,11 @@ function AccountPanel() {
   return (
     <div className="space-y-5">
       <Card>
-        <SectionTitle title="עדכון כתובת אימייל (שם משתמש)" icon={<Mail className="h-5 w-5" />} />
+        <SectionTitle title={t('updateEmailTitle')} icon={<Mail className="h-5 w-5" />} />
         <form onSubmit={updateEmail} className="space-y-4 p-5">
-          <p className="text-xs text-slate-400">האימייל מתעדכן מיד, בלי מייל אישור ובלי קישור.</p>
+          <p className="text-xs text-slate-400">{t('emailImmediate')}</p>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">כתובת אימייל</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">{t('emailAddress')}</label>
             <input
               type="text"
               inputMode="email"
@@ -1611,22 +1635,22 @@ function AccountPanel() {
           )}
           <button type="submit" disabled={emailBusy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white transition hover:bg-brand-700 disabled:opacity-60">
             {emailBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Mail className="h-5 w-5" />}
-            עדכן אימייל
+            {t('updateEmail')}
           </button>
         </form>
       </Card>
 
       <Card>
-        <SectionTitle title="החלפת סיסמה" icon={<KeyRound className="h-5 w-5" />} />
+        <SectionTitle title={t('changePasswordTitle')} icon={<KeyRound className="h-5 w-5" />} />
         <form onSubmit={updatePassword} className="space-y-4 p-5">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">סיסמה חדשה</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">{t('newPassword')}</label>
             <input
               type="password"
               value={newPass}
               onChange={(e) => setNewPass(e.target.value)}
               className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-100"
-              placeholder="לפחות 6 תווים"
+              placeholder={t('passwordPlaceholder')}
             />
           </div>
           {passMsg && (
@@ -1637,17 +1661,17 @@ function AccountPanel() {
           )}
           <button type="submit" disabled={passBusy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white transition hover:bg-brand-700 disabled:opacity-60">
             {passBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Lock className="h-5 w-5" />}
-            עדכן סיסמה
+            {t('updatePassword')}
           </button>
         </form>
       </Card>
 
       <Card>
-        <SectionTitle title="התנתקות" icon={<LogOut className="h-5 w-5" />} />
+        <SectionTitle title={t('signOutTitle')} icon={<LogOut className="h-5 w-5" />} />
         <div className="p-5">
           <button onClick={signOut} className="flex w-full items-center justify-center gap-2 rounded-xl bg-rose-500 px-4 py-3 font-bold text-white transition hover:bg-rose-600">
             <LogOut className="h-5 w-5" />
-            התנתק מהחשבון
+            {t('signOutAccount')}
           </button>
         </div>
       </Card>
